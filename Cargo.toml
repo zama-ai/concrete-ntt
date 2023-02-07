@@ -1,0 +1,22 @@
+[package]
+name = "concrete-ntt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aligned-vec = "0.5"
+bytemuck = "1.13"
+pulp = "0.10"
+
+[features]
+default = ["std"]
+std = []
+nightly = ["bytemuck/nightly_stdsimd", "pulp/nightly"]
+
+[dev-dependencies]
+criterion = "0.4"
+rand = "0.8"
+
+[[bench]]
+name = "bench"
+harness = false
