@@ -1,0 +1,34 @@
+[package]
+name = "concrete-ntt"
+version = "0.1.0"
+edition = "2021"
+authors = ["sarah el kazdadi <sarah.elkazdadi@zama.ai>"]
+description = "Concrete-NTT is a pure Rust high performance number theoretic transform library."
+readme = "README.md"
+repository = "https://github.com/zama-ai/concrete-ntt"
+license = "BSD-3-Clause-Clear"
+homepage = "https://zama.ai/"
+keywords = ["ntt"]
+rust-version = "1.67"
+
+
+[dependencies]
+aligned-vec = { version = "0.5", default-features = false }
+pulp = { version = "0.11", default-features = false }
+
+[features]
+default = ["std"]
+std = ["pulp/std", "aligned-vec/std"]
+nightly = ["pulp/nightly"]
+
+[dev-dependencies]
+criterion = "0.4"
+rand = "0.8"
+
+[[bench]]
+name = "ntt"
+harness = false
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--html-in-header", "katex-header.html", "--cfg", "docsrs"]
