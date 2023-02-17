@@ -1,8 +1,31 @@
-use crate::fastdiv::Div64;
+use crate::fastdiv::{Div32, Div64};
 
+#[inline(always)]
+pub const fn mul_mod32(n: Div32, x: u32, y: u32) -> u32 {
+    Div32::rem_u64(x as u64 * y as u64, n) as u32
+}
 #[inline(always)]
 pub const fn mul_mod64(n: Div64, x: u64, y: u64) -> u64 {
     Div64::rem_u128(x as u128 * y as u128, n) as u64
+}
+
+pub const fn exp_mod32(n: Div32, base: u32, pow: u32) -> u32 {
+    if pow == 0 {
+        1
+    } else {
+        let mut pow = pow;
+        let mut y = 1;
+        let mut x = base;
+
+        while pow > 1 {
+            if pow % 2 == 1 {
+                y = mul_mod32(n, x, y);
+            }
+            x = mul_mod32(n, x, x);
+            pow /= 2;
+        }
+        mul_mod32(n, x, y)
+    }
 }
 
 pub const fn exp_mod64(n: Div64, base: u64, pow: u64) -> u64 {
@@ -157,7 +180,7 @@ pub const fn largest_prime_in_arithmetic_progression64(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Solinas;
+    use crate::_64::Solinas;
 
     #[test]
     fn test_is_prime() {

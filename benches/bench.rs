@@ -1,61 +1,24 @@
-use concrete_ntt::{fastdiv::Div64, *};
-use core::iter::zip;
+use concrete_ntt::{prime::largest_prime_in_arithmetic_progression64, *};
 use criterion::*;
-use rand::random;
 
 fn criterion_bench(c: &mut Criterion) {
     let n = 1024;
 
     let mut data = vec![0; n];
-    let mut roots = vec![0; n];
-    let p = Solinas::P;
-    for (x, y) in zip(&mut data, &mut roots) {
-        *x = random::<u64>() % p;
-        *y = random::<u64>() % p;
-    }
-
-    c.bench_function(&format!("fwd-{n}"), |b| {
-        let p = Solinas::P;
-        let p_div = Div64::new(p);
-        b.iter(|| fwd_breadth_first_scalar(&mut data, p, p_div, &roots, 0, 0));
-    });
-
-    c.bench_function(&format!("fwd-solinas-{n}"), |b| {
-        let p = Solinas;
-        let p_div = ();
-        b.iter(|| fwd_breadth_first_scalar(&mut data, p, p_div, &roots, 0, 0));
-    });
-
-    if let Some(simd) = Avx2::try_new() {
-        c.bench_function(&format!("fwd-avx2-{n}"), |b| {
-            let p = Solinas::P;
-            let p_div = Div64::new(p);
-            let u256 { x0, x1, x2, x3 } = p_div.double_reciprocal;
-            b.iter(|| {
-                fwd_breadth_first_avx2(simd, &mut data, p, (p, x0, x1, x2, x3), &roots, 0, 0)
-            });
+    for p in [
+        largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 49, 1 << 50).unwrap(),
+        largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 50, 1 << 51).unwrap(),
+        largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 61, 1 << 62).unwrap(),
+        largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 62, 1 << 63).unwrap(),
+        _64::Solinas::P,
+        largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 63, u64::MAX).unwrap(),
+    ] {
+        let plan = _64::Plan::try_new(n, p).unwrap();
+        c.bench_function(&format!("fwd-{p}-{n}"), |b| {
+            b.iter(|| plan.fwd(&mut data));
         });
-        c.bench_function(&format!("fwd-solinas-avx2-{n}"), |b| {
-            let p = Solinas;
-            let p_div = ();
-            b.iter(|| fwd_breadth_first_avx2(simd, &mut data, p, p_div, &roots, 0, 0));
-        });
-    }
-
-    #[cfg(feature = "nightly")]
-    if let Some(simd) = Avx512::try_new() {
-        c.bench_function(&format!("fwd-avx512-{n}"), |b| {
-            let p = Solinas::P;
-            let p_div = Div64::new(p);
-            let u256 { x0, x1, x2, x3 } = p_div.double_reciprocal;
-            b.iter(|| {
-                fwd_breadth_first_avx512(simd, &mut data, p, (p, x0, x1, x2, x3), &roots, 0, 0)
-            });
-        });
-        c.bench_function(&format!("fwd-solinas-avx512-{n}"), |b| {
-            let p = Solinas;
-            let p_div = ();
-            b.iter(|| fwd_breadth_first_avx512(simd, &mut data, p, p_div, &roots, 0, 0));
+        c.bench_function(&format!("inv-{p}-{n}"), |b| {
+            b.iter(|| plan.inv(&mut data));
         });
     }
 }

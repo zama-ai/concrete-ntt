@@ -59,7 +59,7 @@ impl Div32 {
     #[inline(always)]
     pub const fn rem(n: u32, d: Self) -> u32 {
         let low_bits = d.single_reciprocal.wrapping_mul(n as u64);
-        mul64_u32(low_bits, n)
+        mul64_u32(low_bits, d.divisor)
     }
 
     #[inline(always)]
@@ -109,7 +109,7 @@ impl Div64 {
     #[inline(always)]
     pub const fn rem(n: u64, d: Self) -> u64 {
         let low_bits = d.single_reciprocal.wrapping_mul(n as u128);
-        mul128_u64(low_bits, n)
+        mul128_u64(low_bits, d.divisor)
     }
 
     #[inline(always)]
@@ -146,7 +146,10 @@ mod tests {
 
             let div = Div64::new(divisor);
             let n = random();
-            assert_eq!(Div64::div_u128(n, div) as u128, n / divisor as u128);
+            let m = random();
+            assert_eq!(Div64::div(m, div), m / divisor);
+            assert_eq!(Div64::rem(m, div), m % divisor);
+            assert_eq!(Div64::div_u128(n, div), n / divisor as u128);
             assert_eq!(Div64::rem_u128(n, div) as u128, n % divisor as u128);
         }
     }
@@ -163,7 +166,10 @@ mod tests {
 
             let div = Div32::new(divisor);
             let n = random();
-            assert_eq!(Div32::div_u64(n, div) as u64, n / divisor as u64);
+            let m = random();
+            assert_eq!(Div32::div(m, div), m / divisor);
+            assert_eq!(Div32::rem(m, div), m % divisor);
+            assert_eq!(Div32::div_u64(n, div), n / divisor as u64);
             assert_eq!(Div32::rem_u64(n, div) as u64, n % divisor as u64);
         }
     }

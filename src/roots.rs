@@ -1,5 +1,7 @@
-use crate::fastdiv::Div64;
-use crate::prime::{exp_mod64, mul_mod64};
+use crate::{
+    fastdiv::Div64,
+    prime::{exp_mod64, mul_mod64},
+};
 
 pub const fn get_q_s64(p: Div64) -> (u64, u64) {
     let p = p.divisor() as u64;
@@ -91,8 +93,7 @@ pub const fn find_primitive_root64(p: Div64, degree: u64) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fastdiv::Div64;
-    use crate::prime::largest_prime_in_arithmetic_progression64;
+    use crate::{fastdiv::Div64, prime::largest_prime_in_arithmetic_progression64};
 
     const fn sqrt_mod64(p: Div64, n: u64) -> Option<u64> {
         if p.divisor() as u64 == 2 {
