@@ -123,16 +123,6 @@ impl crate::Avx512 {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Plan {
-    twid: ABox<[u64]>,
-    twid_shoup: ABox<[u64]>,
-    inv_twid: ABox<[u64]>,
-    inv_twid_shoup: ABox<[u64]>,
-    p: u64,
-    p_div: Div64,
-}
-
 fn init_negacyclic_twiddles(p: u64, n: usize, twid: &mut [u64], inv_twid: &mut [u64]) {
     let div = Div64::new(p);
     let w = find_primitive_root64(div, 2 * n as u64).unwrap();
@@ -195,6 +185,16 @@ fn init_negacyclic_twiddles_shoup(
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Plan {
+    twid: ABox<[u64]>,
+    twid_shoup: ABox<[u64]>,
+    inv_twid: ABox<[u64]>,
+    inv_twid_shoup: ABox<[u64]>,
+    p: u64,
+    p_div: Div64,
+}
+
 impl Plan {
     pub fn try_new(n: usize, p: u64) -> Option<Self> {
         let p_div = Div64::new(p);
@@ -245,6 +245,7 @@ impl Plan {
         }
     }
 
+    #[must_use]
     pub fn fwd(&self, buf: &mut [u64]) -> FwdUpperBound {
         let p = self.p;
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -320,6 +321,7 @@ impl Plan {
         }
     }
 
+    #[must_use]
     pub fn inv(&self, buf: &mut [u64]) -> InvUpperBound {
         let p = self.p;
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -461,7 +463,7 @@ mod tests {
                     FwdUpperBound::TwoP => 2 * p,
                     FwdUpperBound::FourP => 4 * p,
                 };
-                plan.fwd(&mut rhs_fourier);
+                let _ = plan.fwd(&mut rhs_fourier);
 
                 for x in &lhs_fourier {
                     assert!(*x < bound);

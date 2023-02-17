@@ -141,30 +141,26 @@ impl PrimeModulusAvx2 for u64 {
 
     #[inline(always)]
     fn add(self, simd: Avx2, a: __m256i, b: __m256i) -> __m256i {
-        let a = cast(a);
-        let b = cast(b);
         let p = simd.avx._mm256_set1_epi64x(self as _);
         let neg_b = simd.avx2._mm256_sub_epi64(p, b);
         let not_a_ge_neg_b = simd._mm256_cmpgt_epu64(neg_b, a);
-        cast(simd.avx2._mm256_blendv_epi8(
+        simd.avx2._mm256_blendv_epi8(
             simd.avx2._mm256_sub_epi64(a, neg_b),
             simd.avx2._mm256_add_epi64(a, b),
             not_a_ge_neg_b,
-        ))
+        )
     }
 
     #[inline(always)]
     fn sub(self, simd: Avx2, a: __m256i, b: __m256i) -> __m256i {
-        let a = cast(a);
-        let b = cast(b);
         let p = simd.avx._mm256_set1_epi64x(self as _);
         let neg_b = simd.avx2._mm256_sub_epi64(p, b);
         let not_a_ge_b = simd._mm256_cmpgt_epu64(b, a);
-        cast(simd.avx2._mm256_blendv_epi8(
+        simd.avx2._mm256_blendv_epi8(
             simd.avx2._mm256_sub_epi64(a, b),
             simd.avx2._mm256_add_epi64(a, neg_b),
             not_a_ge_b,
-        ))
+        )
     }
 
     #[inline(always)]
@@ -228,8 +224,6 @@ impl PrimeModulusAvx2 for u64 {
         let (p, p_div0, p_div1, p_div2, p_div3) = p;
 
         let avx = simd.avx;
-        let a = cast(a);
-        let b = cast(b);
         let p = avx._mm256_set1_epi64x(p as _);
         let p_div0 = avx._mm256_set1_epi64x(p_div0 as _);
         let p_div1 = avx._mm256_set1_epi64x(p_div1 as _);
@@ -240,7 +234,7 @@ impl PrimeModulusAvx2 for u64 {
         let (low_bits0, low_bits1, low_bits2, low_bits3) =
             wrapping_mul_u256_u128(simd, p_div0, p_div1, p_div2, p_div3, lo, hi);
 
-        cast(mul_u256_u64(simd, low_bits0, low_bits1, low_bits2, low_bits3, p).4)
+        mul_u256_u64(simd, low_bits0, low_bits1, low_bits2, low_bits3, p).4
     }
 }
 
@@ -250,30 +244,26 @@ impl PrimeModulusAvx2 for Solinas {
 
     #[inline(always)]
     fn add(self, simd: Avx2, a: __m256i, b: __m256i) -> __m256i {
-        let a = cast(a);
-        let b = cast(b);
         let p = simd.avx._mm256_set1_epi64x(Self::P as _);
         let neg_b = simd.avx2._mm256_sub_epi64(p, b);
         let not_a_ge_neg_b = simd._mm256_cmpgt_epu64(neg_b, a);
-        cast(simd.avx2._mm256_blendv_epi8(
+        simd.avx2._mm256_blendv_epi8(
             simd.avx2._mm256_sub_epi64(a, neg_b),
             simd.avx2._mm256_add_epi64(a, b),
             not_a_ge_neg_b,
-        ))
+        )
     }
 
     #[inline(always)]
     fn sub(self, simd: Avx2, a: __m256i, b: __m256i) -> __m256i {
-        let a = cast(a);
-        let b = cast(b);
         let p = simd.avx._mm256_set1_epi64x(Self::P as _);
         let neg_b = simd.avx2._mm256_sub_epi64(p, b);
         let not_a_ge_b = simd._mm256_cmpgt_epu64(b, a);
-        cast(simd.avx2._mm256_blendv_epi8(
+        simd.avx2._mm256_blendv_epi8(
             simd.avx2._mm256_sub_epi64(a, b),
             simd.avx2._mm256_add_epi64(a, neg_b),
             not_a_ge_b,
-        ))
+        )
     }
 
     #[inline(always)]
@@ -282,8 +272,6 @@ impl PrimeModulusAvx2 for Solinas {
 
         let avx = simd.avx;
         let avx2 = simd.avx2;
-        let a = cast(a);
-        let b = cast(b);
         let p = avx._mm256_set1_epi64x(Self::P as _);
 
         // https://cp4space.hatsya.com/2021/09/01/an-efficient-prime-for-number-theoretic-transforms/
@@ -311,9 +299,7 @@ impl PrimeModulusAvx2 for Solinas {
         let p_gt_result = simd._mm256_cmpgt_epu64(p, result);
         let not_cond = avx2._mm256_andnot_si256(product_gt_result, p_gt_result);
 
-        let result = avx2._mm256_blendv_epi8(avx2._mm256_sub_epi64(result, p), result, not_cond);
-
-        cast(result)
+        avx2._mm256_blendv_epi8(avx2._mm256_sub_epi64(result, p), result, not_cond)
     }
 }
 
@@ -325,31 +311,27 @@ impl PrimeModulusAvx512 for u64 {
     #[inline(always)]
     fn add(self, simd: Avx512, a: __m512i, b: __m512i) -> __m512i {
         let avx = simd.avx512f;
-        let a = cast(a);
-        let b = cast(b);
         let p = avx._mm512_set1_epi64(self as _);
         let neg_b = avx._mm512_sub_epi64(p, b);
-        let a_ge_neg_b = avx._mm512_cmpge_epu64_mask(neg_b, a);
-        cast(avx._mm512_mask_blend_epi64(
+        let a_ge_neg_b = avx._mm512_cmpge_epu64_mask(a, neg_b);
+        avx._mm512_mask_blend_epi64(
             a_ge_neg_b,
-            avx._mm512_sub_epi64(a, neg_b),
             avx._mm512_add_epi64(a, b),
-        ))
+            avx._mm512_sub_epi64(a, neg_b),
+        )
     }
 
     #[inline(always)]
     fn sub(self, simd: Avx512, a: __m512i, b: __m512i) -> __m512i {
         let avx = simd.avx512f;
-        let a = cast(a);
-        let b = cast(b);
         let p = avx._mm512_set1_epi64(self as _);
         let neg_b = avx._mm512_sub_epi64(p, b);
-        let a_ge_b = avx._mm512_cmpge_epu64_mask(b, a);
-        cast(avx._mm512_mask_blend_epi64(
+        let a_ge_b = avx._mm512_cmpge_epu64_mask(a, b);
+        avx._mm512_mask_blend_epi64(
             a_ge_b,
-            avx._mm512_sub_epi64(a, b),
             avx._mm512_add_epi64(a, neg_b),
-        ))
+            avx._mm512_sub_epi64(a, b),
+        )
     }
 
     #[inline(always)]
@@ -418,8 +400,6 @@ impl PrimeModulusAvx512 for u64 {
         let (p, p_div0, p_div1, p_div2, p_div3) = p;
 
         let avx = simd.avx512f;
-        let a = cast(a);
-        let b = cast(b);
         let p = avx._mm512_set1_epi64(p as _);
         let p_div0 = avx._mm512_set1_epi64(p_div0 as _);
         let p_div1 = avx._mm512_set1_epi64(p_div1 as _);
@@ -430,7 +410,7 @@ impl PrimeModulusAvx512 for u64 {
         let (low_bits0, low_bits1, low_bits2, low_bits3) =
             wrapping_mul_u256_u128(simd, p_div0, p_div1, p_div2, p_div3, lo, hi);
 
-        cast(mul_u256_u64(simd, low_bits0, low_bits1, low_bits2, low_bits3, p).4)
+        mul_u256_u64(simd, low_bits0, low_bits1, low_bits2, low_bits3, p).4
     }
 }
 
@@ -454,8 +434,6 @@ impl PrimeModulusAvx512 for Solinas {
         let _ = p;
 
         let avx = simd.avx512f;
-        let a = cast(a);
-        let b = cast(b);
         let p = avx._mm512_set1_epi64(Self::P as _);
 
         // https://cp4space.hatsya.com/2021/09/01/an-efficient-prime-for-number-theoretic-transforms/
@@ -483,9 +461,7 @@ impl PrimeModulusAvx512 for Solinas {
         let p_gt_result = avx._mm512_cmpgt_epu64_mask(p, result);
         let not_cond = !product_gt_result & p_gt_result;
 
-        let result = avx._mm512_mask_blend_epi64(not_cond, avx._mm512_sub_epi64(result, p), result);
-
-        cast(result)
+        avx._mm512_mask_blend_epi64(not_cond, avx._mm512_sub_epi64(result, p), result)
     }
 }
 
@@ -629,7 +605,7 @@ pub fn fwd_breadth_first_avx2<P: PrimeModulusAvx2>(
                     let (z0, z1) = data.split_at_mut(t);
                     let z0 = as_arrays_mut::<4, _>(z0).0;
                     let z1 = as_arrays_mut::<4, _>(z1).0;
-                    let w1 = cast(simd.avx._mm256_set1_epi64x(w1 as _));
+                    let w1 = simd.avx._mm256_set1_epi64x(w1 as _);
 
                     for (__z0, __z1) in zip(z0, z1) {
                         let mut z0 = cast(*__z0);
@@ -759,7 +735,7 @@ pub fn inv_breadth_first_avx2<P: PrimeModulusAvx2>(
                     let (z0, z1) = data.split_at_mut(t);
                     let z0 = as_arrays_mut::<4, _>(z0).0;
                     let z1 = as_arrays_mut::<4, _>(z1).0;
-                    let w1 = cast(simd.avx._mm256_set1_epi64x(w1 as _));
+                    let w1 = simd.avx._mm256_set1_epi64x(w1 as _);
 
                     for (__z0, __z1) in zip(z0, z1) {
                         let mut z0 = cast(*__z0);
@@ -806,7 +782,7 @@ pub fn fwd_breadth_first_avx512<P: PrimeModulusAvx512>(
                     let (z0, z1) = data.split_at_mut(t);
                     let z0 = as_arrays_mut::<8, _>(z0).0;
                     let z1 = as_arrays_mut::<8, _>(z1).0;
-                    let w1 = cast(simd.avx512f._mm512_set1_epi64(w1 as _));
+                    let w1 = simd.avx512f._mm512_set1_epi64(w1 as _);
 
                     for (__z0, __z1) in zip(z0, z1) {
                         let mut z0 = cast(*__z0);
@@ -916,7 +892,7 @@ pub fn fwd_depth_first_avx512<P: PrimeModulusAvx512>(
                     let (z0, z1) = data.split_at_mut(t);
                     let z0 = as_arrays_mut::<8, _>(z0).0;
                     let z1 = as_arrays_mut::<8, _>(z1).0;
-                    let w1 = cast(simd.avx512f._mm512_set1_epi64(w1 as _));
+                    let w1 = simd.avx512f._mm512_set1_epi64(w1 as _);
 
                     for (__z0, __z1) in zip(z0, z1) {
                         let mut z0 = cast(*__z0);
@@ -1010,7 +986,7 @@ pub fn inv_depth_first_avx512<P: PrimeModulusAvx512>(
                     let (z0, z1) = data.split_at_mut(t);
                     let z0 = as_arrays_mut::<8, _>(z0).0;
                     let z1 = as_arrays_mut::<8, _>(z1).0;
-                    let w1 = cast(simd.avx512f._mm512_set1_epi64(w1 as _));
+                    let w1 = simd.avx512f._mm512_set1_epi64(w1 as _);
 
                     for (__z0, __z1) in zip(z0, z1) {
                         let mut z0 = cast(*__z0);
@@ -1077,7 +1053,7 @@ pub fn inv_depth_first_avx2<P: PrimeModulusAvx2>(
                     let (z0, z1) = data.split_at_mut(t);
                     let z0 = as_arrays_mut::<4, _>(z0).0;
                     let z1 = as_arrays_mut::<4, _>(z1).0;
-                    let w1 = cast(simd.avx._mm256_set1_epi64x(w1 as _));
+                    let w1 = simd.avx._mm256_set1_epi64x(w1 as _);
 
                     for (__z0, __z1) in zip(z0, z1) {
                         let mut z0 = cast(*__z0);
@@ -1124,7 +1100,7 @@ pub fn fwd_depth_first_avx2<P: PrimeModulusAvx2>(
                     let (z0, z1) = data.split_at_mut(t);
                     let z0 = as_arrays_mut::<4, _>(z0).0;
                     let z1 = as_arrays_mut::<4, _>(z1).0;
-                    let w1 = cast(simd.avx._mm256_set1_epi64x(w1 as _));
+                    let w1 = simd.avx._mm256_set1_epi64x(w1 as _);
 
                     for (__z0, __z1) in zip(z0, z1) {
                         let mut z0 = cast(*__z0);
@@ -1233,7 +1209,6 @@ pub fn fwd_avx2<P: PrimeModulusAvx2>(
     fwd_depth_first_avx2(simd, data, p, p_div, twid, 0, 0);
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn fwd_scalar<P: PrimeModulus>(data: &mut [u64], p: P, p_div: P::Div, twid: &[u64]) {
     fwd_depth_first_scalar(data, p, p_div, twid, 0, 0);
 }
@@ -1261,7 +1236,6 @@ pub fn inv_avx2<P: PrimeModulusAvx2>(
     inv_depth_first_avx2(simd, data, p, p_div, twid, 0, 0);
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn inv_scalar<P: PrimeModulus>(data: &mut [u64], p: P, p_div: P::Div, twid: &[u64]) {
     inv_depth_first_scalar(data, p, p_div, twid, 0, 0);
 }
@@ -1366,7 +1340,7 @@ pub fn inv_breadth_first_avx512<P: PrimeModulusAvx512>(
                     let (z0, z1) = data.split_at_mut(t);
                     let z0 = as_arrays_mut::<8, _>(z0).0;
                     let z1 = as_arrays_mut::<8, _>(z1).0;
-                    let w1 = cast(simd.avx512f._mm512_set1_epi64(w1 as _));
+                    let w1 = simd.avx512f._mm512_set1_epi64(w1 as _);
 
                     for (__z0, __z1) in zip(z0, z1) {
                         let mut z0 = cast(*__z0);

@@ -96,7 +96,7 @@ mod tests {
     use crate::{fastdiv::Div64, prime::largest_prime_in_arithmetic_progression64};
 
     const fn sqrt_mod64(p: Div64, n: u64) -> Option<u64> {
-        if p.divisor() as u64 == 2 {
+        if p.divisor() == 2 {
             Some(n)
         } else {
             let z = match get_z64(p) {

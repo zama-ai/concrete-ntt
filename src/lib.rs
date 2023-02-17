@@ -40,6 +40,7 @@ simd_type! {
     pub struct Avx2 {
         pub sse: "sse",
         pub sse2: "sse2",
+        pub sse3: "sse3",
         pub avx: "avx",
         pub avx2: "avx2",
     }
@@ -101,6 +102,43 @@ impl Avx2 {
             self.avx2._mm256_xor_si256(y, c),
         )
     }
+
+    #[inline(always)]
+    pub fn _mm256_mul_u32_u32_epu32(self, a: __m256i, b: __m256i) -> (__m256i, __m256i) {
+        let avx2 = self.avx2;
+
+        // a0b0_lo a0b0_hi a2b2_lo a2b2_hi
+        let ab_evens = avx2._mm256_mul_epu32(a, b);
+        // a1b1_lo a1b1_hi a3b3_lo a3b3_hi
+        let ab_odds = avx2._mm256_mul_epu32(
+            avx2._mm256_srli_epi64::<32>(a),
+            avx2._mm256_srli_epi64::<32>(b),
+        );
+
+        let ab_lo = avx2._mm256_blend_epi32::<0b10101010>(
+            // a0b0_lo xxxxxxx a2b2_lo xxxxxxx
+            ab_evens,
+            // xxxxxxx a1b1_lo xxxxxxx a3b3_lo
+            avx2._mm256_slli_epi64::<32>(ab_odds),
+        );
+        let ab_hi = avx2._mm256_blend_epi32::<0b10101010>(
+            // a0b0_hi xxxxxxx a2b2_hi xxxxxxx
+            avx2._mm256_srli_epi64::<32>(ab_evens),
+            // xxxxxxx a1b1_hi xxxxxxx a3b3_hi
+            ab_odds,
+        );
+
+        (ab_lo, ab_hi)
+    }
+
+    #[inline(always)]
+    pub fn _mm256_cmpgt_epu32(self, x: __m256i, y: __m256i) -> __m256i {
+        let c = self.avx._mm256_set1_epi32(0x80000000u32 as _);
+        self.avx2._mm256_cmpgt_epi32(
+            self.avx2._mm256_xor_si256(x, c),
+            self.avx2._mm256_xor_si256(y, c),
+        )
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -138,10 +176,48 @@ impl Avx512 {
     }
 
     #[inline(always)]
+    pub fn _mm512_mul_u32_u32_epu32(self, a: __m512i, b: __m512i) -> (__m512i, __m512i) {
+        let avx2 = self.avx512f;
+
+        // a0b0_lo a0b0_hi a2b2_lo a2b2_hi
+        let ab_evens = avx2._mm512_mul_epu32(a, b);
+        // a1b1_lo a1b1_hi a3b3_lo a3b3_hi
+        let ab_odds = avx2._mm512_mul_epu32(
+            avx2._mm512_srli_epi64::<32>(a),
+            avx2._mm512_srli_epi64::<32>(b),
+        );
+
+        let ab_lo = avx2._mm512_mask_blend_epi32(
+            0b1010101010101010,
+            // a0b0_lo xxxxxxx a2b2_lo xxxxxxx
+            ab_evens,
+            // xxxxxxx a1b1_lo xxxxxxx a3b3_lo
+            avx2._mm512_slli_epi64::<32>(ab_odds),
+        );
+        let ab_hi = avx2._mm512_mask_blend_epi32(
+            0b1010101010101010,
+            // a0b0_hi xxxxxxx a2b2_hi xxxxxxx
+            avx2._mm512_srli_epi64::<32>(ab_evens),
+            // xxxxxxx a1b1_hi xxxxxxx a3b3_hi
+            ab_odds,
+        );
+
+        (ab_lo, ab_hi)
+    }
+
+    #[inline(always)]
     pub fn _mm512_movm_epi64(self, k: __mmask8) -> __m512i {
         let avx = self.avx512f;
         let zeros = avx._mm512_setzero_si512();
         let ones = avx._mm512_set1_epi64(-1);
         avx._mm512_mask_blend_epi64(k, zeros, ones)
+    }
+
+    #[inline(always)]
+    pub fn _mm512_movm_epi32(self, k: __mmask16) -> __m512i {
+        let avx = self.avx512f;
+        let zeros = avx._mm512_setzero_si512();
+        let ones = avx._mm512_set1_epi32(-1);
+        avx._mm512_mask_blend_epi32(k, zeros, ones)
     }
 }
