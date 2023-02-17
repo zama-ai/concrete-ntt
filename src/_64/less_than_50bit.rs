@@ -68,23 +68,15 @@ pub fn inv_butterfly_avx512(
     (y0, y1)
 }
 
-pub fn fwd_breadth_first_avx512(
-    simd: Avx512,
-    p: u64,
-    data: &mut [u64],
-    twid: &[u64],
-    twid_shoup: &[u64],
-    recursion_depth: usize,
-    recursion_half: usize,
-) {
-    super::shoup::fwd_breadth_first_avx512(
+pub fn fwd_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+    super::shoup::fwd_depth_first_avx512(
         simd,
         p,
         data,
         twid,
         twid_shoup,
-        recursion_depth,
-        recursion_half,
+        0,
+        0,
         #[inline(always)]
         |simd, z0, z1, w, w_shoup, p, neg_p, two_p| {
             fwd_butterfly_avx512(simd, z0, z1, w, w_shoup, p, neg_p, two_p)
@@ -92,23 +84,15 @@ pub fn fwd_breadth_first_avx512(
     )
 }
 
-pub fn inv_breadth_first_avx512(
-    simd: Avx512,
-    p: u64,
-    data: &mut [u64],
-    twid: &[u64],
-    twid_shoup: &[u64],
-    recursion_depth: usize,
-    recursion_half: usize,
-) {
-    super::shoup::inv_breadth_first_avx512(
+pub fn inv_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+    super::shoup::inv_depth_first_avx512(
         simd,
         p,
         data,
         twid,
         twid_shoup,
-        recursion_depth,
-        recursion_half,
+        0,
+        0,
         #[inline(always)]
         |simd, z0, z1, w, w_shoup, p, neg_p, two_p| {
             inv_butterfly_avx512(simd, z0, z1, w, w_shoup, p, neg_p, two_p)
@@ -186,15 +170,15 @@ mod tests {
                 let mut lhs_fourier = lhs.clone();
                 let mut rhs_fourier = rhs.clone();
 
-                fwd_breadth_first_avx512(simd, p, &mut lhs_fourier, &twid, &twid_shoup, 0, 0);
-                fwd_breadth_first_avx512(simd, p, &mut rhs_fourier, &twid, &twid_shoup, 0, 0);
+                fwd_avx512(simd, p, &mut lhs_fourier, &twid, &twid_shoup);
+                fwd_avx512(simd, p, &mut rhs_fourier, &twid, &twid_shoup);
 
                 for i in 0..n {
                     prod[i] =
                         <u64 as PrimeModulus>::mul(Div64::new(p), lhs_fourier[i], rhs_fourier[i]);
                 }
 
-                inv_breadth_first_avx512(simd, p, &mut prod, &inv_twid, &inv_twid_shoup, 0, 0);
+                inv_avx512(simd, p, &mut prod, &inv_twid, &inv_twid_shoup);
                 let result = prod;
 
                 for i in 0..n {

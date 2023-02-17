@@ -1,3 +1,4 @@
+use super::RECURSION_THRESHOLD;
 use crate::fastdiv::Div64;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use crate::Avx2;
@@ -488,7 +489,6 @@ impl PrimeModulusAvx512 for Solinas {
     }
 }
 
-#[inline(always)]
 pub fn fwd_breadth_first_scalar<P: PrimeModulus>(
     data: &mut [u64],
     p: P,
@@ -523,7 +523,6 @@ pub fn fwd_breadth_first_scalar<P: PrimeModulus>(
     }
 }
 
-#[inline(always)]
 pub fn inv_breadth_first_scalar<P: PrimeModulus>(
     data: &mut [u64],
     p: P,
@@ -557,8 +556,54 @@ pub fn inv_breadth_first_scalar<P: PrimeModulus>(
     }
 }
 
+pub fn inv_depth_first_scalar<P: PrimeModulus>(
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    inv_twid: &[u64],
+    recursion_depth: usize,
+    recursion_half: usize,
+) {
+    let n = data.len();
+    debug_assert!(n.is_power_of_two());
+    if n <= RECURSION_THRESHOLD {
+        inv_breadth_first_scalar(data, p, p_div, inv_twid, recursion_depth, recursion_half);
+    } else {
+        let (data0, data1) = data.split_at_mut(n / 2);
+        inv_depth_first_scalar(
+            data0,
+            p,
+            p_div,
+            inv_twid,
+            recursion_depth + 1,
+            recursion_half * 2,
+        );
+        inv_depth_first_scalar(
+            data1,
+            p,
+            p_div,
+            inv_twid,
+            recursion_depth + 1,
+            recursion_half * 2 + 1,
+        );
+
+        let t = n / 2;
+        let m = 1;
+        let w_idx = (m << recursion_depth) + m * recursion_half;
+
+        let w = &inv_twid[w_idx..];
+
+        for (data, &w1) in zip(data.chunks_exact_mut(2 * t), w) {
+            let (z0, z1) = data.split_at_mut(t);
+
+            for (z0, z1) in zip(z0, z1) {
+                (*z0, *z1) = (p.add(*z0, *z1), P::mul(p_div, p.sub(*z0, *z1), w1));
+            }
+        }
+    }
+}
+
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[inline(always)]
 pub fn fwd_breadth_first_avx2<P: PrimeModulusAvx2>(
     simd: Avx2,
     data: &mut [u64],
@@ -639,7 +684,6 @@ pub fn fwd_breadth_first_avx2<P: PrimeModulusAvx2>(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[inline(always)]
 pub fn inv_breadth_first_avx2<P: PrimeModulusAvx2>(
     simd: Avx2,
     data: &mut [u64],
@@ -737,7 +781,6 @@ pub fn inv_breadth_first_avx2<P: PrimeModulusAvx2>(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-#[inline(always)]
 pub fn fwd_breadth_first_avx512<P: PrimeModulusAvx512>(
     simd: Avx512,
     data: &mut [u64],
@@ -837,7 +880,394 @@ pub fn fwd_breadth_first_avx512<P: PrimeModulusAvx512>(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-#[inline(always)]
+pub fn fwd_depth_first_avx512<P: PrimeModulusAvx512>(
+    simd: Avx512,
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    twid: &[u64],
+    recursion_depth: usize,
+    recursion_half: usize,
+) {
+    simd.vectorize(
+        #[inline(always)]
+        || {
+            let n = data.len();
+            debug_assert!(n.is_power_of_two());
+
+            if n <= RECURSION_THRESHOLD {
+                fwd_breadth_first_avx512(
+                    simd,
+                    data,
+                    p,
+                    p_div,
+                    twid,
+                    recursion_depth,
+                    recursion_half,
+                );
+            } else {
+                let t = n / 2;
+                let m = 1;
+                let w_idx = (m << recursion_depth) + m * recursion_half;
+
+                let w = &twid[w_idx..];
+
+                for (data, &w1) in zip(data.chunks_exact_mut(2 * t), w) {
+                    let (z0, z1) = data.split_at_mut(t);
+                    let z0 = as_arrays_mut::<8, _>(z0).0;
+                    let z1 = as_arrays_mut::<8, _>(z1).0;
+                    let w1 = cast(simd.avx512f._mm512_set1_epi64(w1 as _));
+
+                    for (__z0, __z1) in zip(z0, z1) {
+                        let mut z0 = cast(*__z0);
+                        let mut z1 = cast(*__z1);
+                        let z1w = P::mul(p_div, simd, z1, w1);
+                        (z0, z1) = (p.add(simd, z0, z1w), p.sub(simd, z0, z1w));
+                        *__z0 = cast(z0);
+                        *__z1 = cast(z1);
+                    }
+                }
+
+                let (data0, data1) = data.split_at_mut(n / 2);
+                fwd_depth_first_avx512(
+                    simd,
+                    data0,
+                    p,
+                    p_div,
+                    twid,
+                    recursion_depth + 1,
+                    recursion_half * 2,
+                );
+                fwd_depth_first_avx512(
+                    simd,
+                    data1,
+                    p,
+                    p_div,
+                    twid,
+                    recursion_depth + 1,
+                    recursion_half * 2 + 1,
+                );
+            }
+        },
+    );
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(feature = "nightly")]
+pub fn inv_depth_first_avx512<P: PrimeModulusAvx512>(
+    simd: Avx512,
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    twid: &[u64],
+    recursion_depth: usize,
+    recursion_half: usize,
+) {
+    simd.vectorize(
+        #[inline(always)]
+        || {
+            let n = data.len();
+            debug_assert!(n.is_power_of_two());
+
+            if n <= RECURSION_THRESHOLD {
+                inv_breadth_first_avx512(
+                    simd,
+                    data,
+                    p,
+                    p_div,
+                    twid,
+                    recursion_depth,
+                    recursion_half,
+                );
+            } else {
+                let (data0, data1) = data.split_at_mut(n / 2);
+                inv_depth_first_avx512(
+                    simd,
+                    data0,
+                    p,
+                    p_div,
+                    twid,
+                    recursion_depth + 1,
+                    recursion_half * 2,
+                );
+                inv_depth_first_avx512(
+                    simd,
+                    data1,
+                    p,
+                    p_div,
+                    twid,
+                    recursion_depth + 1,
+                    recursion_half * 2 + 1,
+                );
+
+                let t = n / 2;
+                let m = 1;
+                let w_idx = (m << recursion_depth) + m * recursion_half;
+
+                let w = &twid[w_idx..];
+
+                for (data, &w1) in zip(data.chunks_exact_mut(2 * t), w) {
+                    let (z0, z1) = data.split_at_mut(t);
+                    let z0 = as_arrays_mut::<8, _>(z0).0;
+                    let z1 = as_arrays_mut::<8, _>(z1).0;
+                    let w1 = cast(simd.avx512f._mm512_set1_epi64(w1 as _));
+
+                    for (__z0, __z1) in zip(z0, z1) {
+                        let mut z0 = cast(*__z0);
+                        let mut z1 = cast(*__z1);
+                        (z0, z1) = (
+                            p.add(simd, z0, z1),
+                            P::mul(p_div, simd, p.sub(simd, z0, z1), w1),
+                        );
+                        *__z0 = cast(z0);
+                        *__z1 = cast(z1);
+                    }
+                }
+            }
+        },
+    );
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn inv_depth_first_avx2<P: PrimeModulusAvx2>(
+    simd: Avx2,
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    twid: &[u64],
+    recursion_depth: usize,
+    recursion_half: usize,
+) {
+    simd.vectorize(
+        #[inline(always)]
+        || {
+            let n = data.len();
+            debug_assert!(n.is_power_of_two());
+
+            if n <= RECURSION_THRESHOLD {
+                inv_breadth_first_avx2(simd, data, p, p_div, twid, recursion_depth, recursion_half);
+            } else {
+                let (data0, data1) = data.split_at_mut(n / 2);
+                inv_depth_first_avx2(
+                    simd,
+                    data0,
+                    p,
+                    p_div,
+                    twid,
+                    recursion_depth + 1,
+                    recursion_half * 2,
+                );
+                inv_depth_first_avx2(
+                    simd,
+                    data1,
+                    p,
+                    p_div,
+                    twid,
+                    recursion_depth + 1,
+                    recursion_half * 2 + 1,
+                );
+
+                let t = n / 2;
+                let m = 1;
+                let w_idx = (m << recursion_depth) + m * recursion_half;
+
+                let w = &twid[w_idx..];
+
+                for (data, &w1) in zip(data.chunks_exact_mut(2 * t), w) {
+                    let (z0, z1) = data.split_at_mut(t);
+                    let z0 = as_arrays_mut::<4, _>(z0).0;
+                    let z1 = as_arrays_mut::<4, _>(z1).0;
+                    let w1 = cast(simd.avx._mm256_set1_epi64x(w1 as _));
+
+                    for (__z0, __z1) in zip(z0, z1) {
+                        let mut z0 = cast(*__z0);
+                        let mut z1 = cast(*__z1);
+                        (z0, z1) = (
+                            p.add(simd, z0, z1),
+                            P::mul(p_div, simd, p.sub(simd, z0, z1), w1),
+                        );
+                        *__z0 = cast(z0);
+                        *__z1 = cast(z1);
+                    }
+                }
+            }
+        },
+    );
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn fwd_depth_first_avx2<P: PrimeModulusAvx2>(
+    simd: Avx2,
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    twid: &[u64],
+    recursion_depth: usize,
+    recursion_half: usize,
+) {
+    simd.vectorize(
+        #[inline(always)]
+        || {
+            let n = data.len();
+            debug_assert!(n.is_power_of_two());
+
+            if n <= RECURSION_THRESHOLD {
+                fwd_breadth_first_avx2(simd, data, p, p_div, twid, recursion_depth, recursion_half);
+            } else {
+                let t = n / 2;
+                let m = 1;
+                let w_idx = (m << recursion_depth) + m * recursion_half;
+
+                let w = &twid[w_idx..];
+
+                for (data, &w1) in zip(data.chunks_exact_mut(2 * t), w) {
+                    let (z0, z1) = data.split_at_mut(t);
+                    let z0 = as_arrays_mut::<4, _>(z0).0;
+                    let z1 = as_arrays_mut::<4, _>(z1).0;
+                    let w1 = cast(simd.avx._mm256_set1_epi64x(w1 as _));
+
+                    for (__z0, __z1) in zip(z0, z1) {
+                        let mut z0 = cast(*__z0);
+                        let mut z1 = cast(*__z1);
+                        let z1w = P::mul(p_div, simd, z1, w1);
+                        (z0, z1) = (p.add(simd, z0, z1w), p.sub(simd, z0, z1w));
+                        *__z0 = cast(z0);
+                        *__z1 = cast(z1);
+                    }
+                }
+
+                let (data0, data1) = data.split_at_mut(n / 2);
+                fwd_depth_first_avx2(
+                    simd,
+                    data0,
+                    p,
+                    p_div,
+                    twid,
+                    recursion_depth + 1,
+                    recursion_half * 2,
+                );
+                fwd_depth_first_avx2(
+                    simd,
+                    data1,
+                    p,
+                    p_div,
+                    twid,
+                    recursion_depth + 1,
+                    recursion_half * 2 + 1,
+                );
+            }
+        },
+    );
+}
+
+pub fn fwd_depth_first_scalar<P: PrimeModulus>(
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    twid: &[u64],
+    recursion_depth: usize,
+    recursion_half: usize,
+) {
+    let n = data.len();
+    debug_assert!(n.is_power_of_two());
+
+    if n <= RECURSION_THRESHOLD {
+        fwd_breadth_first_scalar(data, p, p_div, twid, recursion_depth, recursion_half);
+    } else {
+        let t = n / 2;
+        let m = 1;
+        let w_idx = (m << recursion_depth) + m * recursion_half;
+
+        let w = &twid[w_idx..];
+
+        for (data, &w1) in zip(data.chunks_exact_mut(2 * t), w) {
+            let (z0, z1) = data.split_at_mut(t);
+
+            for (z0, z1) in zip(z0, z1) {
+                let z1w = P::mul(p_div, *z1, w1);
+
+                (*z0, *z1) = (p.add(*z0, z1w), p.sub(*z0, z1w));
+            }
+        }
+
+        let (data0, data1) = data.split_at_mut(n / 2);
+        fwd_depth_first_scalar(
+            data0,
+            p,
+            p_div,
+            twid,
+            recursion_depth + 1,
+            recursion_half * 2,
+        );
+        fwd_depth_first_scalar(
+            data1,
+            p,
+            p_div,
+            twid,
+            recursion_depth + 1,
+            recursion_half * 2 + 1,
+        );
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(feature = "nightly")]
+pub fn fwd_avx512<P: PrimeModulusAvx512>(
+    simd: Avx512,
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    twid: &[u64],
+) {
+    fwd_depth_first_avx512(simd, data, p, p_div, twid, 0, 0);
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn fwd_avx2<P: PrimeModulusAvx2>(
+    simd: Avx2,
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    twid: &[u64],
+) {
+    fwd_depth_first_avx2(simd, data, p, p_div, twid, 0, 0);
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn fwd_scalar<P: PrimeModulus>(data: &mut [u64], p: P, p_div: P::Div, twid: &[u64]) {
+    fwd_depth_first_scalar(data, p, p_div, twid, 0, 0);
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(feature = "nightly")]
+pub fn inv_avx512<P: PrimeModulusAvx512>(
+    simd: Avx512,
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    twid: &[u64],
+) {
+    inv_depth_first_avx512(simd, data, p, p_div, twid, 0, 0);
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn inv_avx2<P: PrimeModulusAvx2>(
+    simd: Avx2,
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    twid: &[u64],
+) {
+    inv_depth_first_avx2(simd, data, p, p_div, twid, 0, 0);
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn inv_scalar<P: PrimeModulus>(data: &mut [u64], p: P, p_div: P::Div, twid: &[u64]) {
+    inv_depth_first_scalar(data, p, p_div, twid, 0, 0);
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(feature = "nightly")]
 pub fn inv_breadth_first_avx512<P: PrimeModulusAvx512>(
     simd: Avx512,
     data: &mut [u64],

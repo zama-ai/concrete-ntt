@@ -68,11 +68,7 @@ pub fn fwd_butterfly_avx2(
         simd._mm256_mul_u64_u64_epu64(z1, w).0,
         simd._mm256_mul_u64_u64_epu64(shoup_q, neg_p).0,
     );
-    let t = avx._mm256_blendv_epi8(
-        avx._mm256_sub_epi64(t, p),
-        t,
-        simd._mm256_cmpgt_epu64(p, t),
-    );
+    let t = avx._mm256_blendv_epi8(avx._mm256_sub_epi64(t, p), t, simd._mm256_cmpgt_epu64(p, t));
     (
         avx._mm256_add_epi64(z0, t),
         avx._mm256_add_epi64(avx._mm256_sub_epi64(z0, t), p),
@@ -195,23 +191,15 @@ pub fn inv_butterfly_scalar(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn fwd_breadth_first_avx512(
-    simd: Avx512,
-    p: u64,
-    data: &mut [u64],
-    twid: &[u64],
-    twid_shoup: &[u64],
-    recursion_depth: usize,
-    recursion_half: usize,
-) {
-    super::shoup::fwd_breadth_first_avx512(
+pub fn fwd_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+    super::shoup::fwd_depth_first_avx512(
         simd,
         p,
         data,
         twid,
         twid_shoup,
-        recursion_depth,
-        recursion_half,
+        0,
+        0,
         #[inline(always)]
         |simd, z0, z1, w, w_shoup, p, neg_p, two_p| {
             fwd_butterfly_avx512(simd, z0, z1, w, w_shoup, p, neg_p, two_p)
@@ -221,23 +209,15 @@ pub fn fwd_breadth_first_avx512(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn inv_breadth_first_avx512(
-    simd: Avx512,
-    p: u64,
-    data: &mut [u64],
-    twid: &[u64],
-    twid_shoup: &[u64],
-    recursion_depth: usize,
-    recursion_half: usize,
-) {
-    super::shoup::inv_breadth_first_avx512(
+pub fn inv_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+    super::shoup::inv_depth_first_avx512(
         simd,
         p,
         data,
         twid,
         twid_shoup,
-        recursion_depth,
-        recursion_half,
+        0,
+        0,
         #[inline(always)]
         |simd, z0, z1, w, w_shoup, p, neg_p, two_p| {
             inv_butterfly_avx512(simd, z0, z1, w, w_shoup, p, neg_p, two_p)
@@ -246,23 +226,15 @@ pub fn inv_breadth_first_avx512(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn fwd_breadth_first_avx2(
-    simd: Avx2,
-    p: u64,
-    data: &mut [u64],
-    twid: &[u64],
-    twid_shoup: &[u64],
-    recursion_depth: usize,
-    recursion_half: usize,
-) {
-    super::shoup::fwd_breadth_first_avx2(
+pub fn fwd_avx2(simd: Avx2, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+    super::shoup::fwd_depth_first_avx2(
         simd,
         p,
         data,
         twid,
         twid_shoup,
-        recursion_depth,
-        recursion_half,
+        0,
+        0,
         #[inline(always)]
         |simd, z0, z1, w, w_shoup, p, neg_p, two_p| {
             fwd_butterfly_avx2(simd, z0, z1, w, w_shoup, p, neg_p, two_p)
@@ -271,23 +243,15 @@ pub fn fwd_breadth_first_avx2(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn inv_breadth_first_avx2(
-    simd: Avx2,
-    p: u64,
-    data: &mut [u64],
-    twid: &[u64],
-    twid_shoup: &[u64],
-    recursion_depth: usize,
-    recursion_half: usize,
-) {
-    super::shoup::inv_breadth_first_avx2(
+pub fn inv_avx2(simd: Avx2, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+    super::shoup::inv_depth_first_avx2(
         simd,
         p,
         data,
         twid,
         twid_shoup,
-        recursion_depth,
-        recursion_half,
+        0,
+        0,
         #[inline(always)]
         |simd, z0, z1, w, w_shoup, p, neg_p, two_p| {
             inv_butterfly_avx2(simd, z0, z1, w, w_shoup, p, neg_p, two_p)
@@ -295,21 +259,14 @@ pub fn inv_breadth_first_avx2(
     )
 }
 
-pub fn fwd_breadth_first_scalar(
-    p: u64,
-    data: &mut [u64],
-    twid: &[u64],
-    twid_shoup: &[u64],
-    recursion_depth: usize,
-    recursion_half: usize,
-) {
-    super::shoup::fwd_breadth_first_scalar(
+pub fn fwd_scalar(p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+    super::shoup::fwd_depth_first_scalar(
         p,
         data,
         twid,
         twid_shoup,
-        recursion_depth,
-        recursion_half,
+        0,
+        0,
         #[inline(always)]
         |z0, z1, w, w_shoup, p, neg_p, two_p| {
             fwd_butterfly_scalar(z0, z1, w, w_shoup, p, neg_p, two_p)
@@ -317,21 +274,14 @@ pub fn fwd_breadth_first_scalar(
     )
 }
 
-pub fn inv_breadth_first_scalar(
-    p: u64,
-    data: &mut [u64],
-    twid: &[u64],
-    twid_shoup: &[u64],
-    recursion_depth: usize,
-    recursion_half: usize,
-) {
-    super::shoup::inv_breadth_first_scalar(
+pub fn inv_scalar(p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+    super::shoup::inv_depth_first_scalar(
         p,
         data,
         twid,
         twid_shoup,
-        recursion_depth,
-        recursion_half,
+        0,
+        0,
         #[inline(always)]
         |z0, z1, w, w_shoup, p, neg_p, two_p| {
             inv_butterfly_scalar(z0, z1, w, w_shoup, p, neg_p, two_p)
@@ -411,15 +361,15 @@ mod tests {
                 let mut lhs_fourier = lhs.clone();
                 let mut rhs_fourier = rhs.clone();
 
-                fwd_breadth_first_avx512(simd, p, &mut lhs_fourier, &twid, &twid_shoup, 0, 0);
-                fwd_breadth_first_avx512(simd, p, &mut rhs_fourier, &twid, &twid_shoup, 0, 0);
+                fwd_avx512(simd, p, &mut lhs_fourier, &twid, &twid_shoup);
+                fwd_avx512(simd, p, &mut rhs_fourier, &twid, &twid_shoup);
 
                 for i in 0..n {
                     prod[i] =
                         <u64 as PrimeModulus>::mul(Div64::new(p), lhs_fourier[i], rhs_fourier[i]);
                 }
 
-                inv_breadth_first_avx512(simd, p, &mut prod, &inv_twid, &inv_twid_shoup, 0, 0);
+                inv_avx512(simd, p, &mut prod, &inv_twid, &inv_twid_shoup);
                 let result = prod;
 
                 for i in 0..n {
@@ -493,15 +443,15 @@ mod tests {
                 let mut lhs_fourier = lhs.clone();
                 let mut rhs_fourier = rhs.clone();
 
-                fwd_breadth_first_avx2(simd, p, &mut lhs_fourier, &twid, &twid_shoup, 0, 0);
-                fwd_breadth_first_avx2(simd, p, &mut rhs_fourier, &twid, &twid_shoup, 0, 0);
+                fwd_avx2(simd, p, &mut lhs_fourier, &twid, &twid_shoup);
+                fwd_avx2(simd, p, &mut rhs_fourier, &twid, &twid_shoup);
 
                 for i in 0..n {
                     prod[i] =
                         <u64 as PrimeModulus>::mul(Div64::new(p), lhs_fourier[i], rhs_fourier[i]);
                 }
 
-                inv_breadth_first_avx2(simd, p, &mut prod, &inv_twid, &inv_twid_shoup, 0, 0);
+                inv_avx2(simd, p, &mut prod, &inv_twid, &inv_twid_shoup);
                 let result = prod;
 
                 for i in 0..n {
@@ -573,14 +523,14 @@ mod tests {
             let mut lhs_fourier = lhs.clone();
             let mut rhs_fourier = rhs.clone();
 
-            fwd_breadth_first_scalar(p, &mut lhs_fourier, &twid, &twid_shoup, 0, 0);
-            fwd_breadth_first_scalar(p, &mut rhs_fourier, &twid, &twid_shoup, 0, 0);
+            fwd_scalar(p, &mut lhs_fourier, &twid, &twid_shoup);
+            fwd_scalar(p, &mut rhs_fourier, &twid, &twid_shoup);
 
             for i in 0..n {
                 prod[i] = <u64 as PrimeModulus>::mul(Div64::new(p), lhs_fourier[i], rhs_fourier[i]);
             }
 
-            inv_breadth_first_scalar(p, &mut prod, &inv_twid, &inv_twid_shoup, 0, 0);
+            inv_scalar(p, &mut prod, &inv_twid, &inv_twid_shoup);
             let result = prod;
 
             for i in 0..n {

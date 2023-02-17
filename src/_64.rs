@@ -5,6 +5,8 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
+const RECURSION_THRESHOLD: usize = 1024;
+
 mod generic_solinas;
 mod shoup;
 
@@ -249,28 +251,12 @@ impl Plan {
         #[cfg(feature = "nightly")]
         if p < (1u64 << 50) {
             if let Some(simd) = crate::Avx512::try_new() {
-                less_than_50bit::fwd_breadth_first_avx512(
-                    simd,
-                    p,
-                    buf,
-                    &self.twid,
-                    &self.twid_shoup,
-                    0,
-                    0,
-                );
+                less_than_50bit::fwd_avx512(simd, p, buf, &self.twid, &self.twid_shoup);
                 return FwdUpperBound::FourP;
             }
         } else if p < (1u64 << 51) {
             if let Some(simd) = crate::Avx512::try_new() {
-                less_than_51bit::fwd_breadth_first_avx512(
-                    simd,
-                    p,
-                    buf,
-                    &self.twid,
-                    &self.twid_shoup,
-                    0,
-                    0,
-                );
+                less_than_51bit::fwd_avx512(simd, p, buf, &self.twid, &self.twid_shoup);
                 return FwdUpperBound::TwoP;
             }
         }
@@ -280,93 +266,45 @@ impl Plan {
             {
                 #[cfg(feature = "nightly")]
                 if let Some(simd) = crate::Avx512::try_new() {
-                    less_than_62bit::fwd_breadth_first_avx512(
-                        simd,
-                        p,
-                        buf,
-                        &self.twid,
-                        &self.twid_shoup,
-                        0,
-                        0,
-                    );
+                    less_than_62bit::fwd_avx512(simd, p, buf, &self.twid, &self.twid_shoup);
                     return FwdUpperBound::FourP;
                 }
                 if let Some(simd) = crate::Avx2::try_new() {
-                    less_than_62bit::fwd_breadth_first_avx2(
-                        simd,
-                        p,
-                        buf,
-                        &self.twid,
-                        &self.twid_shoup,
-                        0,
-                        0,
-                    );
+                    less_than_62bit::fwd_avx2(simd, p, buf, &self.twid, &self.twid_shoup);
                     return FwdUpperBound::FourP;
                 }
             }
-            less_than_62bit::fwd_breadth_first_scalar(p, buf, &self.twid, &self.twid_shoup, 0, 0);
+            less_than_62bit::fwd_scalar(p, buf, &self.twid, &self.twid_shoup);
             FwdUpperBound::FourP
         } else if p < (1u64 << 63) {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 #[cfg(feature = "nightly")]
                 if let Some(simd) = crate::Avx512::try_new() {
-                    less_than_63bit::fwd_breadth_first_avx512(
-                        simd,
-                        p,
-                        buf,
-                        &self.twid,
-                        &self.twid_shoup,
-                        0,
-                        0,
-                    );
+                    less_than_63bit::fwd_avx512(simd, p, buf, &self.twid, &self.twid_shoup);
                     return FwdUpperBound::TwoP;
                 }
                 if let Some(simd) = crate::Avx2::try_new() {
-                    less_than_63bit::fwd_breadth_first_avx2(
-                        simd,
-                        p,
-                        buf,
-                        &self.twid,
-                        &self.twid_shoup,
-                        0,
-                        0,
-                    );
+                    less_than_63bit::fwd_avx2(simd, p, buf, &self.twid, &self.twid_shoup);
                     return FwdUpperBound::TwoP;
                 }
             }
-            less_than_63bit::fwd_breadth_first_scalar(p, buf, &self.twid, &self.twid_shoup, 0, 0);
+            less_than_63bit::fwd_scalar(p, buf, &self.twid, &self.twid_shoup);
             FwdUpperBound::TwoP
         } else if p == Solinas::P {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 #[cfg(feature = "nightly")]
                 if let Some(simd) = crate::Avx512::try_new() {
-                    generic_solinas::fwd_breadth_first_avx512(
-                        simd,
-                        buf,
-                        Solinas,
-                        (),
-                        &self.twid,
-                        0,
-                        0,
-                    );
+                    generic_solinas::fwd_avx512(simd, buf, Solinas, (), &self.twid);
                     return FwdUpperBound::P;
                 }
                 if let Some(simd) = crate::Avx2::try_new() {
-                    generic_solinas::fwd_breadth_first_avx2(
-                        simd,
-                        buf,
-                        Solinas,
-                        (),
-                        &self.twid,
-                        0,
-                        0,
-                    );
+                    generic_solinas::fwd_avx2(simd, buf, Solinas, (), &self.twid);
                     return FwdUpperBound::P;
                 }
             }
-            generic_solinas::fwd_breadth_first_scalar(buf, Solinas, (), &self.twid, 0, 0);
+            generic_solinas::fwd_scalar(buf, Solinas, (), &self.twid);
             FwdUpperBound::P
         } else {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -374,10 +312,10 @@ impl Plan {
             if let Some(simd) = crate::Avx512::try_new() {
                 let crate::u256 { x0, x1, x2, x3 } = self.p_div.double_reciprocal;
                 let p_div = (p, x0, x1, x2, x3);
-                generic_solinas::fwd_breadth_first_avx512(simd, buf, p, p_div, &self.twid, 0, 0);
+                generic_solinas::fwd_avx512(simd, buf, p, p_div, &self.twid);
                 return FwdUpperBound::P;
             }
-            generic_solinas::fwd_breadth_first_scalar(buf, p, self.p_div, &self.twid, 0, 0);
+            generic_solinas::fwd_scalar(buf, p, self.p_div, &self.twid);
             FwdUpperBound::P
         }
     }
@@ -388,28 +326,12 @@ impl Plan {
         #[cfg(feature = "nightly")]
         if p < (1u64 << 50) {
             if let Some(simd) = crate::Avx512::try_new() {
-                less_than_50bit::inv_breadth_first_avx512(
-                    simd,
-                    p,
-                    buf,
-                    &self.inv_twid,
-                    &self.inv_twid_shoup,
-                    0,
-                    0,
-                );
+                less_than_50bit::inv_avx512(simd, p, buf, &self.inv_twid, &self.inv_twid_shoup);
                 return InvUpperBound::TwoP;
             }
         } else if p < (1u64 << 51) {
             if let Some(simd) = crate::Avx512::try_new() {
-                less_than_51bit::inv_breadth_first_avx512(
-                    simd,
-                    p,
-                    buf,
-                    &self.inv_twid,
-                    &self.inv_twid_shoup,
-                    0,
-                    0,
-                );
+                less_than_51bit::inv_avx512(simd, p, buf, &self.inv_twid, &self.inv_twid_shoup);
                 return InvUpperBound::P;
             }
         }
@@ -419,107 +341,45 @@ impl Plan {
             {
                 #[cfg(feature = "nightly")]
                 if let Some(simd) = crate::Avx512::try_new() {
-                    less_than_62bit::inv_breadth_first_avx512(
-                        simd,
-                        p,
-                        buf,
-                        &self.inv_twid,
-                        &self.inv_twid_shoup,
-                        0,
-                        0,
-                    );
+                    less_than_62bit::inv_avx512(simd, p, buf, &self.inv_twid, &self.inv_twid_shoup);
                     return InvUpperBound::TwoP;
                 }
                 if let Some(simd) = crate::Avx2::try_new() {
-                    less_than_62bit::inv_breadth_first_avx2(
-                        simd,
-                        p,
-                        buf,
-                        &self.inv_twid,
-                        &self.inv_twid_shoup,
-                        0,
-                        0,
-                    );
+                    less_than_62bit::inv_avx2(simd, p, buf, &self.inv_twid, &self.inv_twid_shoup);
                     return InvUpperBound::TwoP;
                 }
             }
-            less_than_62bit::inv_breadth_first_scalar(
-                p,
-                buf,
-                &self.inv_twid,
-                &self.inv_twid_shoup,
-                0,
-                0,
-            );
+            less_than_62bit::inv_scalar(p, buf, &self.inv_twid, &self.inv_twid_shoup);
             InvUpperBound::TwoP
         } else if p < (1u64 << 63) {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 #[cfg(feature = "nightly")]
                 if let Some(simd) = crate::Avx512::try_new() {
-                    less_than_63bit::inv_breadth_first_avx512(
-                        simd,
-                        p,
-                        buf,
-                        &self.inv_twid,
-                        &self.inv_twid_shoup,
-                        0,
-                        0,
-                    );
+                    less_than_63bit::inv_avx512(simd, p, buf, &self.inv_twid, &self.inv_twid_shoup);
                     return InvUpperBound::P;
                 }
                 if let Some(simd) = crate::Avx2::try_new() {
-                    less_than_63bit::inv_breadth_first_avx2(
-                        simd,
-                        p,
-                        buf,
-                        &self.inv_twid,
-                        &self.inv_twid_shoup,
-                        0,
-                        0,
-                    );
+                    less_than_63bit::inv_avx2(simd, p, buf, &self.inv_twid, &self.inv_twid_shoup);
                     return InvUpperBound::P;
                 }
             }
-            less_than_63bit::inv_breadth_first_scalar(
-                p,
-                buf,
-                &self.inv_twid,
-                &self.inv_twid_shoup,
-                0,
-                0,
-            );
+            less_than_63bit::inv_scalar(p, buf, &self.inv_twid, &self.inv_twid_shoup);
             InvUpperBound::P
         } else if p == Solinas::P {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 #[cfg(feature = "nightly")]
                 if let Some(simd) = crate::Avx512::try_new() {
-                    generic_solinas::inv_breadth_first_avx512(
-                        simd,
-                        buf,
-                        Solinas,
-                        (),
-                        &self.inv_twid,
-                        0,
-                        0,
-                    );
+                    generic_solinas::inv_avx512(simd, buf, Solinas, (), &self.inv_twid);
                     return InvUpperBound::P;
                 }
                 if let Some(simd) = crate::Avx2::try_new() {
-                    generic_solinas::inv_breadth_first_avx2(
-                        simd,
-                        buf,
-                        Solinas,
-                        (),
-                        &self.inv_twid,
-                        0,
-                        0,
-                    );
+                    generic_solinas::inv_avx2(simd, buf, Solinas, (), &self.inv_twid);
                     return InvUpperBound::P;
                 }
             }
-            generic_solinas::inv_breadth_first_scalar(buf, Solinas, (), &self.inv_twid, 0, 0);
+            generic_solinas::inv_scalar(buf, Solinas, (), &self.inv_twid);
             InvUpperBound::P
         } else {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -527,18 +387,10 @@ impl Plan {
             if let Some(simd) = crate::Avx512::try_new() {
                 let crate::u256 { x0, x1, x2, x3 } = self.p_div.double_reciprocal;
                 let p_div = (p, x0, x1, x2, x3);
-                generic_solinas::inv_breadth_first_avx512(
-                    simd,
-                    buf,
-                    p,
-                    p_div,
-                    &self.inv_twid,
-                    0,
-                    0,
-                );
+                generic_solinas::inv_avx512(simd, buf, p, p_div, &self.inv_twid);
                 return InvUpperBound::P;
             }
-            generic_solinas::inv_breadth_first_scalar(buf, p, self.p_div, &self.inv_twid, 0, 0);
+            generic_solinas::inv_scalar(buf, p, self.p_div, &self.inv_twid);
             InvUpperBound::P
         }
     }
