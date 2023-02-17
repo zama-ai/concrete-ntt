@@ -2,11 +2,11 @@ use crate::fastdiv::{Div32, Div64};
 
 #[inline(always)]
 pub const fn mul_mod32(n: Div32, x: u32, y: u32) -> u32 {
-    Div32::rem_u64(x as u64 * y as u64, n) as u32
+    Div32::rem_u64(x as u64 * y as u64, n)
 }
 #[inline(always)]
 pub const fn mul_mod64(n: Div64, x: u64, y: u64) -> u64 {
-    Div64::rem_u128(x as u128 * y as u128, n) as u64
+    Div64::rem_u128(x as u128 * y as u128, n)
 }
 
 pub const fn exp_mod32(n: Div32, base: u32, pow: u32) -> u32 {

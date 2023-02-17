@@ -1,5 +1,6 @@
 #![cfg_attr(feature = "nightly", feature(avx512_target_feature, stdsimd))]
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(clippy::too_many_arguments, clippy::let_unit_value)]
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;

@@ -4,7 +4,7 @@ use crate::{
 };
 
 pub const fn get_q_s64(p: Div64) -> (u64, u64) {
-    let p = p.divisor() as u64;
+    let p = p.divisor();
     let mut q = p - 1;
     let mut s = 0;
     while q % 2 == 0 {
@@ -15,7 +15,7 @@ pub const fn get_q_s64(p: Div64) -> (u64, u64) {
 }
 
 pub const fn get_z64(p: Div64) -> Option<u64> {
-    let p_val = p.divisor() as u64;
+    let p_val = p.divisor();
 
     let mut n = 2;
     while n < p_val {
@@ -70,7 +70,7 @@ pub const fn find_primitive_root64(p: Div64, degree: u64) -> Option<u64> {
     assert!(degree > 1);
     let n = degree.trailing_zeros();
 
-    let p_val = p.divisor() as u64;
+    let p_val = p.divisor();
     let mut root = p_val - 1;
     let (q, s) = get_q_s64(p);
     let z = match get_z64(p) {
