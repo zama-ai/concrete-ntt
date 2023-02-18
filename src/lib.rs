@@ -19,17 +19,6 @@ pub mod _128;
 pub mod _32;
 pub mod _64;
 
-pub enum FwdUpperBound {
-    P,
-    TwoP,
-    FourP,
-}
-
-pub enum InvUpperBound {
-    P,
-    TwoP,
-}
-
 #[inline]
 fn bit_rev(nbits: u32, i: usize) -> usize {
     i.reverse_bits() >> (usize::BITS - nbits)
@@ -219,5 +208,36 @@ impl Avx512 {
         let zeros = avx._mm512_setzero_si512();
         let ones = avx._mm512_set1_epi32(-1);
         avx._mm512_mask_blend_epi32(k, zeros, ones)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::prime::largest_prime_in_arithmetic_progression64;
+    use rand::random;
+
+    #[test]
+    fn test_barrett() {
+        let q = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 62, 1 << 63).unwrap();
+
+        let big_q: u32 = q.ilog2() + 1;
+        let big_l: u32 = big_q + 63;
+        let k: u64 = ((1u128 << big_l) / q as u128).try_into().unwrap();
+
+        for _ in 0..10000 {
+            let a = random::<u64>() % q;
+            let b = random::<u64>() % q;
+
+            let d = a as u128 * b as u128;
+            // Q < 63
+            // d < 2^(2Q)
+            // (d >> (Q-1)) < 2^(Q+1)         -> c1 fits in u64
+            let c1 = (d >> (big_q - 1)) as u64;
+            // c2 < 2^(Q+65)
+            let c3 = ((c1 as u128 * k as u128) >> 64) as u64;
+            let c = (d as u64).wrapping_sub(q.wrapping_mul(c3));
+            let c = if c >= q { c - q } else { c };
+            assert_eq!(c as u128, d % q as u128);
+        }
     }
 }

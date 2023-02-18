@@ -18,25 +18,45 @@ pub fn fwd_butterfly_avx512(
     let _ = two_p;
     let avx = simd.avx512f;
     let fma = simd.avx512ifma;
-    let z0 = avx._mm512_mask_blend_epi64(
-        avx._mm512_cmpge_epu64_mask(z0, p),
-        z0,
-        avx._mm512_sub_epi64(z0, p),
-    );
+    let z0 = simd.small_mod_epu64(p, z0);
     let zero = avx._mm512_setzero_si512();
     let shoup_q = fma._mm512_madd52hi_epu64(zero, z1, w_shoup);
     let t = avx._mm512_and_si512(
         avx._mm512_set1_epi64(((1u64 << 52) - 1u64) as i64),
         fma._mm512_madd52lo_epu64(fma._mm512_madd52lo_epu64(zero, z1, w), shoup_q, neg_p),
     );
-    let t = avx._mm512_mask_blend_epi64(
-        avx._mm512_cmpge_epu64_mask(t, p),
-        t,
-        avx._mm512_sub_epi64(t, p),
-    );
+    let t = simd.small_mod_epu64(p, t);
     (
         avx._mm512_add_epi64(z0, t),
         avx._mm512_add_epi64(avx._mm512_sub_epi64(z0, t), p),
+    )
+}
+
+#[inline(always)]
+pub fn fwd_last_butterfly_avx512(
+    simd: Avx512,
+    z0: __m512i,
+    z1: __m512i,
+    w: __m512i,
+    w_shoup: __m512i,
+    p: __m512i,
+    neg_p: __m512i,
+    two_p: __m512i,
+) -> (__m512i, __m512i) {
+    let _ = two_p;
+    let avx = simd.avx512f;
+    let fma = simd.avx512ifma;
+    let z0 = simd.small_mod_epu64(p, z0);
+    let zero = avx._mm512_setzero_si512();
+    let shoup_q = fma._mm512_madd52hi_epu64(zero, z1, w_shoup);
+    let t = avx._mm512_and_si512(
+        avx._mm512_set1_epi64(((1u64 << 52) - 1u64) as i64),
+        fma._mm512_madd52lo_epu64(fma._mm512_madd52lo_epu64(zero, z1, w), shoup_q, neg_p),
+    );
+    let t = simd.small_mod_epu64(p, t);
+    (
+        simd.small_mod_epu64(p, avx._mm512_add_epi64(z0, t)),
+        simd.small_mod_epu64(p, avx._mm512_add_epi64(avx._mm512_sub_epi64(z0, t), p)),
     )
 }
 
@@ -56,11 +76,7 @@ pub fn inv_butterfly_avx512(
     let fma = simd.avx512ifma;
 
     let y0 = avx._mm512_add_epi64(z0, z1);
-    let y0 = avx._mm512_mask_blend_epi64(
-        avx._mm512_cmpge_epu64_mask(y0, p),
-        y0,
-        avx._mm512_sub_epi64(y0, p),
-    );
+    let y0 = simd.small_mod_epu64(p, y0);
     let t = avx._mm512_add_epi64(avx._mm512_sub_epi64(z0, z1), p);
 
     let zero = avx._mm512_setzero_si512();
@@ -69,11 +85,7 @@ pub fn inv_butterfly_avx512(
         avx._mm512_set1_epi64(((1u64 << 52) - 1u64) as i64),
         fma._mm512_madd52lo_epu64(fma._mm512_madd52lo_epu64(zero, t, w), shoup_q, neg_p),
     );
-    let y1 = avx._mm512_mask_blend_epi64(
-        avx._mm512_cmpge_epu64_mask(y1, p),
-        y1,
-        avx._mm512_sub_epi64(y1, p),
-    );
+    let y1 = simd.small_mod_epu64(p, y1);
 
     (y0, y1)
 }
@@ -91,6 +103,10 @@ pub fn fwd_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_sho
         |simd, z0, z1, w, w_shoup, p, neg_p, two_p| {
             fwd_butterfly_avx512(simd, z0, z1, w, w_shoup, p, neg_p, two_p)
         },
+        #[inline(always)]
+        |simd, z0, z1, w, w_shoup, p, neg_p, two_p| {
+            fwd_last_butterfly_avx512(simd, z0, z1, w, w_shoup, p, neg_p, two_p)
+        },
     )
 }
 
@@ -103,6 +119,10 @@ pub fn inv_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_sho
         twid_shoup,
         0,
         0,
+        #[inline(always)]
+        |simd, z0, z1, w, w_shoup, p, neg_p, two_p| {
+            inv_butterfly_avx512(simd, z0, z1, w, w_shoup, p, neg_p, two_p)
+        },
         #[inline(always)]
         |simd, z0, z1, w, w_shoup, p, neg_p, two_p| {
             inv_butterfly_avx512(simd, z0, z1, w, w_shoup, p, neg_p, two_p)
@@ -182,6 +202,12 @@ mod tests {
 
                 fwd_avx512(simd, p, &mut lhs_fourier, &twid, &twid_shoup);
                 fwd_avx512(simd, p, &mut rhs_fourier, &twid, &twid_shoup);
+                for x in &lhs_fourier {
+                    assert!(*x < p);
+                }
+                for x in &rhs_fourier {
+                    assert!(*x < p);
+                }
 
                 for i in 0..n {
                     prod[i] =
@@ -193,7 +219,7 @@ mod tests {
 
                 for i in 0..n {
                     assert_eq!(
-                        result[i] % p,
+                        result[i],
                         <u64 as PrimeModulus>::mul(
                             Div64::new(p),
                             negacyclic_convolution[i],

@@ -32,6 +32,17 @@ pub fn fwd_breadth_first_avx512(
             /* neg_p */ __m512i,
             /* two_p */ __m512i,
         ) -> (__m512i, __m512i),
+    last_butterfly: impl Copy
+        + Fn(
+            Avx512,
+            /* z0 */ __m512i,
+            /* z1 */ __m512i,
+            /* w */ __m512i,
+            /* w_shoup */ __m512i,
+            /* p */ __m512i,
+            /* neg_p */ __m512i,
+            /* two_p */ __m512i,
+        ) -> (__m512i, __m512i),
 ) {
     simd.vectorize(
         #[inline(always)]
@@ -144,7 +155,7 @@ pub fn fwd_breadth_first_avx512(
                     let w = simd.permute1_epu32(*w);
                     let w_shoup = simd.permute1_epu32(*w_shoup);
                     let [mut z0, mut z1] = simd.interleave1_epu32(cast(*z0z1));
-                    (z0, z1) = butterfly(simd, z0, z1, w, w_shoup, p, neg_p, two_p);
+                    (z0, z1) = last_butterfly(simd, z0, z1, w, w_shoup, p, neg_p, two_p);
                     *z0z1 = cast(simd.interleave1_epu32([z0, z1]));
                 }
             }
@@ -173,6 +184,17 @@ pub fn fwd_depth_first_avx512(
             /* neg_p */ __m512i,
             /* two_p */ __m512i,
         ) -> (__m512i, __m512i),
+    last_butterfly: impl Copy
+        + Fn(
+            Avx512,
+            /* z0 */ __m512i,
+            /* z1 */ __m512i,
+            /* w */ __m512i,
+            /* w_shoup */ __m512i,
+            /* p */ __m512i,
+            /* neg_p */ __m512i,
+            /* two_p */ __m512i,
+        ) -> (__m512i, __m512i),
 ) {
     simd.vectorize(
         #[inline(always)]
@@ -190,6 +212,7 @@ pub fn fwd_depth_first_avx512(
                     recursion_depth,
                     recursion_half,
                     butterfly,
+                    last_butterfly,
                 );
             } else {
                 let t = n / 2;
@@ -233,6 +256,7 @@ pub fn fwd_depth_first_avx512(
                     recursion_depth + 1,
                     recursion_half * 2,
                     butterfly,
+                    last_butterfly,
                 );
                 fwd_depth_first_avx512(
                     simd,
@@ -243,6 +267,7 @@ pub fn fwd_depth_first_avx512(
                     recursion_depth + 1,
                     recursion_half * 2 + 1,
                     butterfly,
+                    last_butterfly,
                 );
             }
         },
@@ -259,6 +284,17 @@ pub fn fwd_breadth_first_avx2(
     recursion_depth: usize,
     recursion_half: usize,
     butterfly: impl Copy
+        + Fn(
+            Avx2,
+            /* z0 */ __m256i,
+            /* z1 */ __m256i,
+            /* w */ __m256i,
+            /* w_shoup */ __m256i,
+            /* p */ __m256i,
+            /* neg_p */ __m256i,
+            /* two_p */ __m256i,
+        ) -> (__m256i, __m256i),
+    last_butterfly: impl Copy
         + Fn(
             Avx2,
             /* z0 */ __m256i,
@@ -361,7 +397,7 @@ pub fn fwd_breadth_first_avx2(
                     let w = simd.permute1_epu32(*w);
                     let w_shoup = simd.permute1_epu32(*w_shoup);
                     let [mut z0, mut z1] = simd.interleave1_epu32(cast(*z0z1));
-                    (z0, z1) = butterfly(simd, z0, z1, w, w_shoup, p, neg_p, two_p);
+                    (z0, z1) = last_butterfly(simd, z0, z1, w, w_shoup, p, neg_p, two_p);
                     *z0z1 = cast(simd.interleave1_epu32([z0, z1]));
                 }
             }
@@ -389,6 +425,17 @@ pub fn fwd_depth_first_avx2(
             /* neg_p */ __m256i,
             /* two_p */ __m256i,
         ) -> (__m256i, __m256i),
+    last_butterfly: impl Copy
+        + Fn(
+            Avx2,
+            /* z0 */ __m256i,
+            /* z1 */ __m256i,
+            /* w */ __m256i,
+            /* w_shoup */ __m256i,
+            /* p */ __m256i,
+            /* neg_p */ __m256i,
+            /* two_p */ __m256i,
+        ) -> (__m256i, __m256i),
 ) {
     simd.vectorize(
         #[inline(always)]
@@ -406,6 +453,7 @@ pub fn fwd_depth_first_avx2(
                     recursion_depth,
                     recursion_half,
                     butterfly,
+                    last_butterfly,
                 );
             } else {
                 let t = n / 2;
@@ -449,6 +497,7 @@ pub fn fwd_depth_first_avx2(
                     recursion_depth + 1,
                     recursion_half * 2,
                     butterfly,
+                    last_butterfly,
                 );
                 fwd_depth_first_avx2(
                     simd,
@@ -459,6 +508,7 @@ pub fn fwd_depth_first_avx2(
                     recursion_depth + 1,
                     recursion_half * 2 + 1,
                     butterfly,
+                    last_butterfly,
                 );
             }
         },
@@ -474,6 +524,16 @@ pub fn fwd_breadth_first_scalar(
     recursion_depth: usize,
     recursion_half: usize,
     butterfly: impl Copy
+        + Fn(
+            /* z0 */ u32,
+            /* z1 */ u32,
+            /* w */ u32,
+            /* w_shoup */ u32,
+            /* p */ u32,
+            /* neg_p */ u32,
+            /* two_p */ u32,
+        ) -> (u32, u32),
+    last_butterfly: impl Copy
         + Fn(
             /* z0 */ u32,
             /* z1 */ u32,
@@ -500,14 +560,27 @@ pub fn fwd_breadth_first_scalar(
         let w = &twid[w_idx..];
         let w_shoup = &twid_shoup[w_idx..];
 
-        for (data, (&w, &w_shoup)) in zip(data.chunks_exact_mut(2 * t), zip(w, w_shoup)) {
-            let (z0, z1) = data.split_at_mut(t);
-            for (__z0, __z1) in zip(z0, z1) {
-                let mut z0 = *__z0;
-                let mut z1 = *__z1;
-                (z0, z1) = butterfly(z0, z1, w, w_shoup, p, neg_p, two_p);
-                *__z0 = z0;
-                *__z1 = z1;
+        if t == 1 {
+            for (data, (&w, &w_shoup)) in zip(data.chunks_exact_mut(2 * t), zip(w, w_shoup)) {
+                let (z0, z1) = data.split_at_mut(t);
+                for (__z0, __z1) in zip(z0, z1) {
+                    let mut z0 = *__z0;
+                    let mut z1 = *__z1;
+                    (z0, z1) = last_butterfly(z0, z1, w, w_shoup, p, neg_p, two_p);
+                    *__z0 = z0;
+                    *__z1 = z1;
+                }
+            }
+        } else {
+            for (data, (&w, &w_shoup)) in zip(data.chunks_exact_mut(2 * t), zip(w, w_shoup)) {
+                let (z0, z1) = data.split_at_mut(t);
+                for (__z0, __z1) in zip(z0, z1) {
+                    let mut z0 = *__z0;
+                    let mut z1 = *__z1;
+                    (z0, z1) = butterfly(z0, z1, w, w_shoup, p, neg_p, two_p);
+                    *__z0 = z0;
+                    *__z1 = z1;
+                }
             }
         }
 
@@ -533,6 +606,16 @@ pub fn fwd_depth_first_scalar(
             /* neg_p */ u32,
             /* two_p */ u32,
         ) -> (u32, u32),
+    last_butterfly: impl Copy
+        + Fn(
+            /* z0 */ u32,
+            /* z1 */ u32,
+            /* w */ u32,
+            /* w_shoup */ u32,
+            /* p */ u32,
+            /* neg_p */ u32,
+            /* two_p */ u32,
+        ) -> (u32, u32),
 ) {
     let n = data.len();
     debug_assert!(n.is_power_of_two());
@@ -546,6 +629,7 @@ pub fn fwd_depth_first_scalar(
             recursion_depth,
             recursion_half,
             butterfly,
+            last_butterfly,
         );
     } else {
         let t = n / 2;
@@ -581,6 +665,7 @@ pub fn fwd_depth_first_scalar(
             recursion_depth + 1,
             recursion_half * 2,
             butterfly,
+            last_butterfly,
         );
         fwd_depth_first_scalar(
             p,
@@ -590,6 +675,7 @@ pub fn fwd_depth_first_scalar(
             recursion_depth + 1,
             recursion_half * 2 + 1,
             butterfly,
+            last_butterfly,
         );
     }
 }
@@ -605,6 +691,17 @@ pub fn inv_breadth_first_avx512(
     recursion_depth: usize,
     recursion_half: usize,
     butterfly: impl Copy
+        + Fn(
+            Avx512,
+            /* z0 */ __m512i,
+            /* z1 */ __m512i,
+            /* w */ __m512i,
+            /* w_shoup */ __m512i,
+            /* p */ __m512i,
+            /* neg_p */ __m512i,
+            /* two_p */ __m512i,
+        ) -> (__m512i, __m512i),
+    last_butterfly: impl Copy
         + Fn(
             Avx512,
             /* z0 */ __m512i,
@@ -727,19 +824,39 @@ pub fn inv_breadth_first_avx512(
                 let w = &inv_twid[w_idx..];
                 let w_shoup = &inv_twid_shoup[w_idx..];
 
-                for (data, (&w, &w_shoup)) in zip(data.chunks_exact_mut(2 * t), zip(w, w_shoup)) {
-                    let (z0, z1) = data.split_at_mut(t);
-                    let z0 = as_arrays_mut::<16, _>(z0).0;
-                    let z1 = as_arrays_mut::<16, _>(z1).0;
-                    let w = avx._mm512_set1_epi32(w as i32);
-                    let w_shoup = avx._mm512_set1_epi32(w_shoup as i32);
+                if m == 1 {
+                    for (data, (&w, &w_shoup)) in zip(data.chunks_exact_mut(2 * t), zip(w, w_shoup))
+                    {
+                        let (z0, z1) = data.split_at_mut(t);
+                        let z0 = as_arrays_mut::<16, _>(z0).0;
+                        let z1 = as_arrays_mut::<16, _>(z1).0;
+                        let w = avx._mm512_set1_epi32(w as i32);
+                        let w_shoup = avx._mm512_set1_epi32(w_shoup as i32);
 
-                    for (__z0, __z1) in zip(z0, z1) {
-                        let mut z0 = cast(*__z0);
-                        let mut z1 = cast(*__z1);
-                        (z0, z1) = butterfly(simd, z0, z1, w, w_shoup, p, neg_p, two_p);
-                        *__z0 = cast(z0);
-                        *__z1 = cast(z1);
+                        for (__z0, __z1) in zip(z0, z1) {
+                            let mut z0 = cast(*__z0);
+                            let mut z1 = cast(*__z1);
+                            (z0, z1) = last_butterfly(simd, z0, z1, w, w_shoup, p, neg_p, two_p);
+                            *__z0 = cast(z0);
+                            *__z1 = cast(z1);
+                        }
+                    }
+                } else {
+                    for (data, (&w, &w_shoup)) in zip(data.chunks_exact_mut(2 * t), zip(w, w_shoup))
+                    {
+                        let (z0, z1) = data.split_at_mut(t);
+                        let z0 = as_arrays_mut::<16, _>(z0).0;
+                        let z1 = as_arrays_mut::<16, _>(z1).0;
+                        let w = avx._mm512_set1_epi32(w as i32);
+                        let w_shoup = avx._mm512_set1_epi32(w_shoup as i32);
+
+                        for (__z0, __z1) in zip(z0, z1) {
+                            let mut z0 = cast(*__z0);
+                            let mut z1 = cast(*__z1);
+                            (z0, z1) = butterfly(simd, z0, z1, w, w_shoup, p, neg_p, two_p);
+                            *__z0 = cast(z0);
+                            *__z1 = cast(z1);
+                        }
                     }
                 }
 
@@ -770,6 +887,17 @@ pub fn inv_depth_first_avx512(
             /* neg_p */ __m512i,
             /* two_p */ __m512i,
         ) -> (__m512i, __m512i),
+    last_butterfly: impl Copy
+        + Fn(
+            Avx512,
+            /* z0 */ __m512i,
+            /* z1 */ __m512i,
+            /* w */ __m512i,
+            /* w_shoup */ __m512i,
+            /* p */ __m512i,
+            /* neg_p */ __m512i,
+            /* two_p */ __m512i,
+        ) -> (__m512i, __m512i),
 ) {
     simd.vectorize(
         #[inline(always)]
@@ -787,6 +915,7 @@ pub fn inv_depth_first_avx512(
                     recursion_depth,
                     recursion_half,
                     butterfly,
+                    last_butterfly,
                 );
             } else {
                 let (data0, data1) = data.split_at_mut(n / 2);
@@ -799,6 +928,7 @@ pub fn inv_depth_first_avx512(
                     recursion_depth + 1,
                     recursion_half * 2,
                     butterfly,
+                    butterfly,
                 );
                 inv_depth_first_avx512(
                     simd,
@@ -808,6 +938,7 @@ pub fn inv_depth_first_avx512(
                     twid_shoup,
                     recursion_depth + 1,
                     recursion_half * 2 + 1,
+                    butterfly,
                     butterfly,
                 );
 
@@ -835,7 +966,7 @@ pub fn inv_depth_first_avx512(
                         for (__z0, __z1) in zip(z0, z1) {
                             let mut z0 = cast(*__z0);
                             let mut z1 = cast(*__z1);
-                            (z0, z1) = butterfly(simd, z0, z1, w, w_shoup, p, neg_p, two_p);
+                            (z0, z1) = last_butterfly(simd, z0, z1, w, w_shoup, p, neg_p, two_p);
                             *__z0 = cast(z0);
                             *__z1 = cast(z1);
                         }
@@ -856,6 +987,17 @@ pub fn inv_breadth_first_avx2(
     recursion_depth: usize,
     recursion_half: usize,
     butterfly: impl Copy
+        + Fn(
+            Avx2,
+            /* z0 */ __m256i,
+            /* z1 */ __m256i,
+            /* w */ __m256i,
+            /* w_shoup */ __m256i,
+            /* p */ __m256i,
+            /* neg_p */ __m256i,
+            /* two_p */ __m256i,
+        ) -> (__m256i, __m256i),
+    last_butterfly: impl Copy
         + Fn(
             Avx2,
             /* z0 */ __m256i,
@@ -955,19 +1097,39 @@ pub fn inv_breadth_first_avx2(
                 let w = &inv_twid[w_idx..];
                 let w_shoup = &inv_twid_shoup[w_idx..];
 
-                for (data, (&w, &w_shoup)) in zip(data.chunks_exact_mut(2 * t), zip(w, w_shoup)) {
-                    let (z0, z1) = data.split_at_mut(t);
-                    let z0 = as_arrays_mut::<8, _>(z0).0;
-                    let z1 = as_arrays_mut::<8, _>(z1).0;
-                    let w = avx._mm256_set1_epi32(w as i32);
-                    let w_shoup = avx._mm256_set1_epi32(w_shoup as i32);
+                if m == 1 {
+                    for (data, (&w, &w_shoup)) in zip(data.chunks_exact_mut(2 * t), zip(w, w_shoup))
+                    {
+                        let (z0, z1) = data.split_at_mut(t);
+                        let z0 = as_arrays_mut::<8, _>(z0).0;
+                        let z1 = as_arrays_mut::<8, _>(z1).0;
+                        let w = avx._mm256_set1_epi32(w as i32);
+                        let w_shoup = avx._mm256_set1_epi32(w_shoup as i32);
 
-                    for (__z0, __z1) in zip(z0, z1) {
-                        let mut z0 = cast(*__z0);
-                        let mut z1 = cast(*__z1);
-                        (z0, z1) = butterfly(simd, z0, z1, w, w_shoup, p, neg_p, two_p);
-                        *__z0 = cast(z0);
-                        *__z1 = cast(z1);
+                        for (__z0, __z1) in zip(z0, z1) {
+                            let mut z0 = cast(*__z0);
+                            let mut z1 = cast(*__z1);
+                            (z0, z1) = last_butterfly(simd, z0, z1, w, w_shoup, p, neg_p, two_p);
+                            *__z0 = cast(z0);
+                            *__z1 = cast(z1);
+                        }
+                    }
+                } else {
+                    for (data, (&w, &w_shoup)) in zip(data.chunks_exact_mut(2 * t), zip(w, w_shoup))
+                    {
+                        let (z0, z1) = data.split_at_mut(t);
+                        let z0 = as_arrays_mut::<8, _>(z0).0;
+                        let z1 = as_arrays_mut::<8, _>(z1).0;
+                        let w = avx._mm256_set1_epi32(w as i32);
+                        let w_shoup = avx._mm256_set1_epi32(w_shoup as i32);
+
+                        for (__z0, __z1) in zip(z0, z1) {
+                            let mut z0 = cast(*__z0);
+                            let mut z1 = cast(*__z1);
+                            (z0, z1) = butterfly(simd, z0, z1, w, w_shoup, p, neg_p, two_p);
+                            *__z0 = cast(z0);
+                            *__z1 = cast(z1);
+                        }
                     }
                 }
 
@@ -997,6 +1159,17 @@ pub fn inv_depth_first_avx2(
             /* neg_p */ __m256i,
             /* two_p */ __m256i,
         ) -> (__m256i, __m256i),
+    last_butterfly: impl Copy
+        + Fn(
+            Avx2,
+            /* z0 */ __m256i,
+            /* z1 */ __m256i,
+            /* w */ __m256i,
+            /* w_shoup */ __m256i,
+            /* p */ __m256i,
+            /* neg_p */ __m256i,
+            /* two_p */ __m256i,
+        ) -> (__m256i, __m256i),
 ) {
     simd.vectorize(
         #[inline(always)]
@@ -1014,6 +1187,7 @@ pub fn inv_depth_first_avx2(
                     recursion_depth,
                     recursion_half,
                     butterfly,
+                    last_butterfly,
                 );
             } else {
                 let (data0, data1) = data.split_at_mut(n / 2);
@@ -1026,6 +1200,7 @@ pub fn inv_depth_first_avx2(
                     recursion_depth + 1,
                     recursion_half * 2,
                     butterfly,
+                    butterfly,
                 );
                 inv_depth_first_avx2(
                     simd,
@@ -1035,6 +1210,7 @@ pub fn inv_depth_first_avx2(
                     twid_shoup,
                     recursion_depth + 1,
                     recursion_half * 2 + 1,
+                    butterfly,
                     butterfly,
                 );
 
@@ -1062,7 +1238,7 @@ pub fn inv_depth_first_avx2(
                         for (__z0, __z1) in zip(z0, z1) {
                             let mut z0 = cast(*__z0);
                             let mut z1 = cast(*__z1);
-                            (z0, z1) = butterfly(simd, z0, z1, w, w_shoup, p, neg_p, two_p);
+                            (z0, z1) = last_butterfly(simd, z0, z1, w, w_shoup, p, neg_p, two_p);
                             *__z0 = cast(z0);
                             *__z1 = cast(z1);
                         }
@@ -1091,6 +1267,16 @@ pub fn inv_breadth_first_scalar(
             /* neg_p */ u32,
             /* two_p */ u32,
         ) -> (u32, u32),
+    last_butterfly: impl Copy
+        + Fn(
+            /* z0 */ u32,
+            /* z1 */ u32,
+            /* w */ u32,
+            /* w_shoup */ u32,
+            /* p */ u32,
+            /* neg_p */ u32,
+            /* two_p */ u32,
+        ) -> (u32, u32),
 ) {
     let n = data.len();
     debug_assert!(n.is_power_of_two());
@@ -1109,14 +1295,27 @@ pub fn inv_breadth_first_scalar(
         let w = &twid[w_idx..];
         let w_shoup = &twid_shoup[w_idx..];
 
-        for (data, (&w, &w_shoup)) in zip(data.chunks_exact_mut(2 * t), zip(w, w_shoup)) {
-            let (z0, z1) = data.split_at_mut(t);
-            for (__z0, __z1) in zip(z0, z1) {
-                let mut z0 = *__z0;
-                let mut z1 = *__z1;
-                (z0, z1) = butterfly(z0, z1, w, w_shoup, p, neg_p, two_p);
-                *__z0 = z0;
-                *__z1 = z1;
+        if m == 1 {
+            for (data, (&w, &w_shoup)) in zip(data.chunks_exact_mut(2 * t), zip(w, w_shoup)) {
+                let (z0, z1) = data.split_at_mut(t);
+                for (__z0, __z1) in zip(z0, z1) {
+                    let mut z0 = *__z0;
+                    let mut z1 = *__z1;
+                    (z0, z1) = last_butterfly(z0, z1, w, w_shoup, p, neg_p, two_p);
+                    *__z0 = z0;
+                    *__z1 = z1;
+                }
+            }
+        } else {
+            for (data, (&w, &w_shoup)) in zip(data.chunks_exact_mut(2 * t), zip(w, w_shoup)) {
+                let (z0, z1) = data.split_at_mut(t);
+                for (__z0, __z1) in zip(z0, z1) {
+                    let mut z0 = *__z0;
+                    let mut z1 = *__z1;
+                    (z0, z1) = butterfly(z0, z1, w, w_shoup, p, neg_p, two_p);
+                    *__z0 = z0;
+                    *__z1 = z1;
+                }
             }
         }
 
@@ -1141,6 +1340,16 @@ pub fn inv_depth_first_scalar(
             /* neg_p */ u32,
             /* two_p */ u32,
         ) -> (u32, u32),
+    last_butterfly: impl Copy
+        + Fn(
+            /* z0 */ u32,
+            /* z1 */ u32,
+            /* w */ u32,
+            /* w_shoup */ u32,
+            /* p */ u32,
+            /* neg_p */ u32,
+            /* two_p */ u32,
+        ) -> (u32, u32),
 ) {
     let n = data.len();
     debug_assert!(n.is_power_of_two());
@@ -1154,6 +1363,7 @@ pub fn inv_depth_first_scalar(
             recursion_depth,
             recursion_half,
             butterfly,
+            last_butterfly,
         );
     } else {
         let (data0, data1) = data.split_at_mut(n / 2);
@@ -1165,6 +1375,7 @@ pub fn inv_depth_first_scalar(
             recursion_depth + 1,
             recursion_half * 2,
             butterfly,
+            butterfly,
         );
         inv_depth_first_scalar(
             p,
@@ -1173,6 +1384,7 @@ pub fn inv_depth_first_scalar(
             twid_shoup,
             recursion_depth + 1,
             recursion_half * 2 + 1,
+            butterfly,
             butterfly,
         );
 
@@ -1193,7 +1405,7 @@ pub fn inv_depth_first_scalar(
                 for (__z0, __z1) in zip(z0, z1) {
                     let mut z0 = cast(*__z0);
                     let mut z1 = cast(*__z1);
-                    (z0, z1) = butterfly(z0, z1, w, w_shoup, p, neg_p, two_p);
+                    (z0, z1) = last_butterfly(z0, z1, w, w_shoup, p, neg_p, two_p);
                     *__z0 = cast(z0);
                     *__z1 = cast(z1);
                 }
