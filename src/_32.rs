@@ -282,7 +282,7 @@ pub struct Plan {
 impl Plan {
     pub fn try_new(n: usize, p: u32) -> Option<Self> {
         let p_div = Div32::new(p);
-        if find_primitive_root64(Div64::new(p as u64), 2 * n as u64).is_none() {
+        if n < 32 || find_primitive_root64(Div64::new(p as u64), 2 * n as u64).is_none() {
             None
         } else {
             let mut twid = avec![0u32; n].into_boxed_slice();
@@ -320,7 +320,13 @@ impl Plan {
         }
     }
 
+    #[inline]
+    pub fn ntt_size(&self) -> usize {
+        self.twid.len()
+    }
+
     pub fn fwd(&self, buf: &mut [u32]) {
+        assert_eq!(buf.len(), self.ntt_size());
         let p = self.p;
 
         if p < (1u32 << 30) {
@@ -368,6 +374,7 @@ impl Plan {
     }
 
     pub fn inv(&self, buf: &mut [u32]) {
+        assert_eq!(buf.len(), self.ntt_size());
         let p = self.p;
 
         if p < (1u32 << 30) {
@@ -517,7 +524,7 @@ mod tests {
 
                 for i in 0..n {
                     assert_eq!(
-                        prod[i] % p,
+                        prod[i],
                         mul(Div32::new(p), negacyclic_convolution[i], n as u32),
                     );
                 }

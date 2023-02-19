@@ -265,8 +265,15 @@ impl Plan {
         }
     }
 
+    #[inline]
+    pub fn ntt_size(&self) -> usize {
+        self.twid.len()
+    }
+
     pub fn fwd(&self, buf: &mut [u64]) {
+        assert_eq!(buf.len(), self.ntt_size());
         let p = self.p;
+
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         #[cfg(feature = "nightly")]
         if p < (1u64 << 50) {
@@ -337,7 +344,9 @@ impl Plan {
     }
 
     pub fn inv(&self, buf: &mut [u64]) {
+        assert_eq!(buf.len(), self.ntt_size());
         let p = self.p;
+
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         #[cfg(feature = "nightly")]
         if p < (1u64 << 50) {
