@@ -154,150 +154,84 @@ fn criterion_bench(c: &mut Criterion) {
     }
 
     for n in ns {
-        let mut data = vec![0; n];
-        let mut mod_p0 = vec![0; n];
-        let mut mod_p1 = vec![0; n];
-        let mut mod_p2 = vec![0; n];
+        let mut prod = vec![0; n];
+        let lhs = vec![0; n];
+        let rhs = vec![0; n];
+
         let plan = native32::Plan32::try_new(n).unwrap();
-        c.bench_function(&format!("native32-fwd-32-{n}"), |b| {
-            b.iter(|| plan.fwd(&data, &mut mod_p0, &mut mod_p1, &mut mod_p2));
+        c.bench_function(&format!("native32-32-{n}"), |b| {
+            b.iter(|| plan.negacyclic_polymul(&mut prod, &lhs, &rhs));
         });
-        c.bench_function(&format!("native32-inv-32-{n}"), |b| {
-            b.iter(|| plan.inv(&mut data, &mut mod_p0, &mut mod_p1, &mut mod_p2));
+        let plan = native_binary32::Plan32::try_new(n).unwrap();
+        c.bench_function(&format!("nativebinary32-32-{n}"), |b| {
+            b.iter(|| plan.negacyclic_polymul(&mut prod, &lhs, &rhs));
         });
-    }
-    #[cfg(feature = "nightly")]
-    for n in ns {
-        let mut data = vec![0; n];
-        let mut mod_p0 = vec![0; n];
-        let mut mod_p1 = vec![0; n];
-        let plan = native32::Plan52::try_new(n).unwrap();
-        c.bench_function(&format!("native32-fwd-52-{n}"), |b| {
-            b.iter(|| plan.fwd(&data, &mut mod_p0, &mut mod_p1));
-        });
-        c.bench_function(&format!("native32-inv-52-{n}"), |b| {
-            b.iter(|| plan.inv(&mut data, &mut mod_p0, &mut mod_p1));
-        });
-    }
-    for n in ns {
-        let mut data = vec![0u32; n];
-        let lhs = vec![0u32; n];
-        let rhs = vec![0u32; n];
+
+        #[cfg(feature = "nightly")]
+        {
+            if let Some(plan) = native32::Plan52::try_new(n) {
+                c.bench_function(&format!("native32-52-{n}"), |b| {
+                    b.iter(|| plan.negacyclic_polymul(&mut prod, &lhs, &rhs));
+                });
+            }
+            if let Some(plan) = native_binary32::Plan52::try_new(n) {
+                c.bench_function(&format!("nativebinary32-52-{n}"), |b| {
+                    b.iter(|| plan.negacyclic_polymul(&mut prod, &lhs, &rhs));
+                });
+            }
+        }
         c.bench_function(&format!("native32-karatsuba-{n}"), |b| {
-            b.iter(|| polynomial_karatsuba_wrapping_mul(&mut data, &lhs, &rhs));
+            b.iter(|| polynomial_karatsuba_wrapping_mul(&mut prod, &lhs, &rhs));
         });
     }
 
     for n in ns {
-        let mut data = vec![0; n];
-        let mut mod_p0 = vec![0; n];
-        let mut mod_p1 = vec![0; n];
-        let mut mod_p2 = vec![0; n];
-        let mut mod_p3 = vec![0; n];
-        let mut mod_p4 = vec![0; n];
+        let mut prod = vec![0; n];
+        let lhs = vec![0; n];
+        let rhs = vec![0; n];
+
         let plan = native64::Plan32::try_new(n).unwrap();
-        c.bench_function(&format!("native64-fwd-32-{n}"), |b| {
-            b.iter(|| {
-                plan.fwd(
-                    &data,
-                    &mut mod_p0,
-                    &mut mod_p1,
-                    &mut mod_p2,
-                    &mut mod_p3,
-                    &mut mod_p4,
-                )
-            });
+        c.bench_function(&format!("native64-32-{n}"), |b| {
+            b.iter(|| plan.negacyclic_polymul(&mut prod, &lhs, &rhs));
         });
-        c.bench_function(&format!("native64-inv-32-{n}"), |b| {
-            b.iter(|| {
-                plan.inv(
-                    &mut data,
-                    &mut mod_p0,
-                    &mut mod_p1,
-                    &mut mod_p2,
-                    &mut mod_p3,
-                    &mut mod_p4,
-                )
-            });
+        let plan = native_binary64::Plan32::try_new(n).unwrap();
+        c.bench_function(&format!("nativebinary64-32-{n}"), |b| {
+            b.iter(|| plan.negacyclic_polymul(&mut prod, &lhs, &rhs));
         });
-    }
-    #[cfg(feature = "nightly")]
-    for n in ns {
-        let mut data = vec![0; n];
-        let mut mod_p0 = vec![0; n];
-        let mut mod_p1 = vec![0; n];
-        let mut mod_p2 = vec![0; n];
-        let plan = native64::Plan52::try_new(n).unwrap();
-        c.bench_function(&format!("native64-fwd-52-{n}"), |b| {
-            b.iter(|| plan.fwd(&data, &mut mod_p0, &mut mod_p1, &mut mod_p2));
-        });
-        c.bench_function(&format!("native64-inv-52-{n}"), |b| {
-            b.iter(|| plan.inv(&mut data, &mut mod_p0, &mut mod_p1, &mut mod_p2));
-        });
-    }
-    for n in ns {
-        let mut data = vec![0u64; n];
-        let lhs = vec![0u64; n];
-        let rhs = vec![0u64; n];
+
+        #[cfg(feature = "nightly")]
+        {
+            if let Some(plan) = native64::Plan52::try_new(n) {
+                c.bench_function(&format!("native64-52-{n}"), |b| {
+                    b.iter(|| plan.negacyclic_polymul(&mut prod, &lhs, &rhs));
+                });
+            }
+            if let Some(plan) = native_binary64::Plan52::try_new(n) {
+                c.bench_function(&format!("nativebinary64-52-{n}"), |b| {
+                    b.iter(|| plan.negacyclic_polymul(&mut prod, &lhs, &rhs));
+                });
+            }
+        }
         c.bench_function(&format!("native64-karatsuba-{n}"), |b| {
-            b.iter(|| polynomial_karatsuba_wrapping_mul(&mut data, &lhs, &rhs));
+            b.iter(|| polynomial_karatsuba_wrapping_mul(&mut prod, &lhs, &rhs));
         });
     }
 
     for n in ns {
-        let mut data = vec![0; n];
-        let mut mod_p0 = vec![0; n];
-        let mut mod_p1 = vec![0; n];
-        let mut mod_p2 = vec![0; n];
-        let mut mod_p3 = vec![0; n];
-        let mut mod_p4 = vec![0; n];
-        let mut mod_p5 = vec![0; n];
-        let mut mod_p6 = vec![0; n];
-        let mut mod_p7 = vec![0; n];
-        let mut mod_p8 = vec![0; n];
-        let mut mod_p9 = vec![0; n];
+        let mut prod = vec![0; n];
+        let lhs = vec![0; n];
+        let rhs = vec![0; n];
+
         let plan = native128::Plan32::try_new(n).unwrap();
-        c.bench_function(&format!("native128-fwd-32-{n}"), |b| {
-            b.iter(|| {
-                plan.fwd(
-                    &data,
-                    &mut mod_p0,
-                    &mut mod_p1,
-                    &mut mod_p2,
-                    &mut mod_p3,
-                    &mut mod_p4,
-                    &mut mod_p5,
-                    &mut mod_p6,
-                    &mut mod_p7,
-                    &mut mod_p8,
-                    &mut mod_p9,
-                )
-            });
+        c.bench_function(&format!("native128-32-{n}"), |b| {
+            b.iter(|| plan.negacyclic_polymul(&mut prod, &lhs, &rhs));
         });
-        c.bench_function(&format!("native128-inv-32-{n}"), |b| {
-            b.iter(|| {
-                plan.inv(
-                    &mut data,
-                    &mut mod_p0,
-                    &mut mod_p1,
-                    &mut mod_p2,
-                    &mut mod_p3,
-                    &mut mod_p4,
-                    &mut mod_p5,
-                    &mut mod_p6,
-                    &mut mod_p7,
-                    &mut mod_p8,
-                    &mut mod_p9,
-                )
-            });
+        let plan = native_binary128::Plan32::try_new(n).unwrap();
+        c.bench_function(&format!("nativebinary128-32-{n}"), |b| {
+            b.iter(|| plan.negacyclic_polymul(&mut prod, &lhs, &rhs));
         });
-    }
-    for n in ns {
-        let mut data = vec![0u128; n];
-        let lhs = vec![0u128; n];
-        let rhs = vec![0u128; n];
         c.bench_function(&format!("native128-karatsuba-{n}"), |b| {
-            b.iter(|| polynomial_karatsuba_wrapping_mul(&mut data, &lhs, &rhs));
+            b.iter(|| polynomial_karatsuba_wrapping_mul(&mut prod, &lhs, &rhs));
         });
     }
 }

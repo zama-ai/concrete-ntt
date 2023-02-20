@@ -22,6 +22,9 @@ pub mod _64;
 pub mod native128;
 pub mod native32;
 pub mod native64;
+pub mod native_binary128;
+pub mod native_binary32;
+pub mod native_binary64;
 
 #[inline]
 fn bit_rev(nbits: u32, i: usize) -> usize {
@@ -224,7 +227,8 @@ impl Avx512 {
     }
 }
 
-pub mod primes32 {
+#[allow(dead_code)]
+pub(crate) mod primes32 {
     use crate::{
         fastdiv::{Div32, Div64},
         prime::exp_mod32,
@@ -374,7 +378,8 @@ pub mod primes32 {
     pub const P0123456789: u128 = u128::wrapping_mul(P01234567, P89 as u128);
 }
 
-pub mod primes52 {
+#[allow(dead_code)]
+pub(crate) mod primes52 {
     use crate::fastdiv::Div64;
 
     pub const P0: u64 = 0b0011111111111111111111111110011101110000000000000001;
@@ -468,7 +473,33 @@ mod tests {
     use rand::random;
 
     #[test]
-    fn test_barrett() {
+    fn test_barrett32() {
+        let q =
+            largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 30, 1 << 31).unwrap() as u32;
+
+        let big_q: u32 = q.ilog2() + 1;
+        let big_l: u32 = big_q + 31;
+        let k: u32 = ((1u128 << big_l) / q as u128).try_into().unwrap();
+
+        for _ in 0..10000 {
+            let a = random::<u32>() % q;
+            let b = random::<u32>() % q;
+
+            let d = a as u64 * b as u64;
+            // Q < 31
+            // d < 2^(2Q)
+            // (d >> (Q-1)) < 2^(Q+1)         -> c1 fits in u32
+            let c1 = (d >> (big_q - 1)) as u32;
+            // c2 < 2^(Q+33)
+            let c3 = ((c1 as u64 * k as u64) >> 32) as u32;
+            let c = (d as u32).wrapping_sub(q.wrapping_mul(c3));
+            let c = if c >= q { c - q } else { c };
+            assert_eq!(c as u64, d % q as u64);
+        }
+    }
+
+    #[test]
+    fn test_barrett64() {
         let q = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 62, 1 << 63).unwrap();
 
         let big_q: u32 = q.ilog2() + 1;

@@ -1,4 +1,5 @@
 pub(crate) use crate::native64::{mul_mod32, mul_mod64};
+use aligned_vec::avec;
 
 pub struct Plan32(
     crate::_32::Plan,
@@ -239,6 +240,59 @@ impl Plan32 {
             );
         }
     }
+
+    pub fn negacyclic_polymul(&self, prod: &mut [u128], lhs: &[u128], rhs: &[u128]) {
+        let n = prod.len();
+        assert_eq!(n, lhs.len());
+        assert_eq!(n, rhs.len());
+
+        let mut lhs0 = avec![0; n];
+        let mut lhs1 = avec![0; n];
+        let mut lhs2 = avec![0; n];
+        let mut lhs3 = avec![0; n];
+        let mut lhs4 = avec![0; n];
+        let mut lhs5 = avec![0; n];
+        let mut lhs6 = avec![0; n];
+        let mut lhs7 = avec![0; n];
+        let mut lhs8 = avec![0; n];
+        let mut lhs9 = avec![0; n];
+
+        let mut rhs0 = avec![0; n];
+        let mut rhs1 = avec![0; n];
+        let mut rhs2 = avec![0; n];
+        let mut rhs3 = avec![0; n];
+        let mut rhs4 = avec![0; n];
+        let mut rhs5 = avec![0; n];
+        let mut rhs6 = avec![0; n];
+        let mut rhs7 = avec![0; n];
+        let mut rhs8 = avec![0; n];
+        let mut rhs9 = avec![0; n];
+
+        self.fwd(
+            lhs, &mut lhs0, &mut lhs1, &mut lhs2, &mut lhs3, &mut lhs4, &mut lhs5, &mut lhs6,
+            &mut lhs7, &mut lhs8, &mut lhs9,
+        );
+        self.fwd(
+            rhs, &mut rhs0, &mut rhs1, &mut rhs2, &mut rhs3, &mut rhs4, &mut rhs5, &mut rhs6,
+            &mut rhs7, &mut rhs8, &mut rhs9,
+        );
+
+        self.0.mul_assign_normalize(&mut lhs0, &rhs0);
+        self.1.mul_assign_normalize(&mut lhs1, &rhs1);
+        self.2.mul_assign_normalize(&mut lhs2, &rhs2);
+        self.3.mul_assign_normalize(&mut lhs3, &rhs3);
+        self.4.mul_assign_normalize(&mut lhs4, &rhs4);
+        self.5.mul_assign_normalize(&mut lhs5, &rhs5);
+        self.6.mul_assign_normalize(&mut lhs6, &rhs6);
+        self.7.mul_assign_normalize(&mut lhs7, &rhs7);
+        self.8.mul_assign_normalize(&mut lhs8, &rhs8);
+        self.9.mul_assign_normalize(&mut lhs9, &rhs9);
+
+        self.inv(
+            prod, &mut lhs0, &mut lhs1, &mut lhs2, &mut lhs3, &mut lhs4, &mut lhs5, &mut lhs6,
+            &mut lhs7, &mut lhs8, &mut lhs9,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -292,6 +346,25 @@ mod tests {
             for (&value, &value_roundtrip) in crate::izip!(&value, &value_roundtrip) {
                 assert_eq!(value_roundtrip, value.wrapping_mul(n as u128));
             }
+
+            let lhs = (0..n).map(|_| random::<u128>()).collect::<Vec<_>>();
+            let rhs = (0..n).map(|_| random::<u128>()).collect::<Vec<_>>();
+            let mut full_convolution = vec![0u128; 2 * n];
+            let mut negacyclic_convolution = vec![0u128; n];
+            for i in 0..n {
+                for j in 0..n {
+                    full_convolution[i + j] =
+                        full_convolution[i + j].wrapping_add(lhs[i].wrapping_mul(rhs[j]));
+                }
+            }
+            for i in 0..n {
+                negacyclic_convolution[i] =
+                    full_convolution[i].wrapping_sub(full_convolution[i + n]);
+            }
+
+            let mut prod = vec![0; n];
+            plan.negacyclic_polymul(&mut prod, &lhs, &rhs);
+            assert_eq!(prod, negacyclic_convolution);
         }
     }
 }

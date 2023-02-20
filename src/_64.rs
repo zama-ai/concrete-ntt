@@ -213,6 +213,13 @@ pub struct Plan {
     inv_twid_shoup: ABox<[u64]>,
     p: u64,
     p_div: Div64,
+
+    // used for elementwise product
+    p_barrett: u64,
+    big_q: u64,
+
+    n_inv_mod_p: u64,
+    n_inv_mod_p_shoup: u64,
 }
 
 impl Plan {
@@ -221,6 +228,15 @@ impl Plan {
         if find_primitive_root64(p_div, 2 * n as u64).is_none() {
             None
         } else {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            #[cfg(feature = "nightly")]
+            let has_ifma = (p < (1u64 << 51)) && crate::Avx512::try_new().is_some();
+            #[cfg(not(all(
+                any(target_arch = "x86", target_arch = "x86_64"),
+                feature = "nightly",
+            )))]
+            let has_ifma = false;
+
             let mut twid = avec![0u64; n].into_boxed_slice();
             let mut inv_twid = avec![0u64; n].into_boxed_slice();
             let (mut twid_shoup, mut inv_twid_shoup) = if p < (1u64 << 63) {
@@ -233,14 +249,7 @@ impl Plan {
             };
 
             if p < (1u64 << 63) {
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-                #[cfg(feature = "nightly")]
-                let max_bits = if p < (1u64 << 51) { 52 } else { 64 };
-                #[cfg(not(all(
-                    any(target_arch = "x86", target_arch = "x86_64"),
-                    feature = "nightly",
-                )))]
-                let max_bits = 64;
+                let max_bits = if has_ifma { 52 } else { 64 };
                 init_negacyclic_twiddles_shoup(
                     p,
                     n,
@@ -254,6 +263,12 @@ impl Plan {
                 init_negacyclic_twiddles(p, n, &mut twid, &mut inv_twid);
             }
 
+            let n_inv_mod_p = crate::prime::exp_mod64(p_div, n as u64, p - 2);
+            let n_inv_mod_p_shoup = (((n_inv_mod_p as u128) << 64) / p as u128) as u64;
+            let big_q = (p.ilog2() + 1) as u64;
+            let big_l = big_q + 63;
+            let p_barrett = ((1u128 << big_l) / p as u128) as u64;
+
             Some(Self {
                 twid,
                 twid_shoup,
@@ -261,6 +276,10 @@ impl Plan {
                 inv_twid,
                 p,
                 p_div,
+                p_barrett,
+                big_q,
+                n_inv_mod_p,
+                n_inv_mod_p_shoup,
             })
         }
     }
@@ -415,6 +434,192 @@ impl Plan {
             generic_solinas::inv_scalar(buf, p, self.p_div, &self.inv_twid);
         }
     }
+
+    pub fn mul_assign_normalize(&self, lhs: &mut [u64], rhs: &[u64]) {
+        let p = self.p;
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        #[cfg(feature = "nightly")]
+        let has_ifma = (p < (1u64 << 51)) && crate::Avx512::try_new().is_some();
+
+        if p < (1 << 63) {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            #[cfg(feature = "nightly")]
+            if has_ifma {
+                // p < 2^51
+                let simd = crate::Avx512::try_new().unwrap();
+                simd.vectorize(
+                    #[inline(always)]
+                    move || {
+                        use pulp::cast;
+
+                        let avx = simd.avx512f;
+                        let lhs = pulp::as_arrays_mut::<8, _>(lhs).0;
+                        let rhs = pulp::as_arrays::<8, _>(rhs).0;
+
+                        let big_q_m1 = avx._mm512_set1_epi64((self.big_q - 1) as i64);
+                        let big_q_m1_complement =
+                            avx._mm512_set1_epi64((64 - (self.big_q - 1)) as i64);
+                        let n_inv_mod_p = avx._mm512_set1_epi64(self.n_inv_mod_p as i64);
+                        let n_inv_mod_p_shoup =
+                            avx._mm512_set1_epi64(self.n_inv_mod_p_shoup as i64);
+                        let p_barrett = avx._mm512_set1_epi64(self.p_barrett as i64);
+                        let p = avx._mm512_set1_epi64(self.p as i64);
+
+                        for (__lhs, rhs) in crate::izip!(lhs, rhs) {
+                            let lhs = cast(*__lhs);
+                            let rhs = cast(*rhs);
+
+                            // lhs × rhs
+                            let (lo, hi) = simd._mm512_mul_u64_u64_epu64(lhs, rhs);
+                            let c1 = avx._mm512_or_si512(
+                                avx._mm512_srlv_epi64(lo, big_q_m1),
+                                avx._mm512_sllv_epi64(hi, big_q_m1_complement),
+                            );
+                            let c3 = simd._mm512_mul_u64_u64_epu64(c1, p_barrett).1;
+                            let prod = avx._mm512_sub_epi64(lo, avx._mm512_mullox_epi64(p, c3));
+
+                            // normalization
+                            let shoup_q = simd._mm512_mul_u64_u64_epu64(prod, n_inv_mod_p_shoup).1;
+                            let t = avx._mm512_sub_epi64(
+                                avx._mm512_mullox_epi64(prod, n_inv_mod_p),
+                                avx._mm512_mullox_epi64(shoup_q, p),
+                            );
+
+                            *__lhs = cast(simd.small_mod_epu64(p, t));
+                        }
+                    },
+                );
+                return;
+            }
+
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            #[cfg(feature = "nightly")]
+            if let Some(simd) = crate::Avx512::try_new() {
+                simd.vectorize(
+                    #[inline(always)]
+                    move || {
+                        use pulp::cast;
+
+                        let avx = simd.avx512f;
+                        let lhs = pulp::as_arrays_mut::<8, _>(lhs).0;
+                        let rhs = pulp::as_arrays::<8, _>(rhs).0;
+
+                        let big_q_m1 = avx._mm512_set1_epi64((self.big_q - 1) as i64);
+                        let big_q_m1_complement =
+                            avx._mm512_set1_epi64((64 - (self.big_q - 1)) as i64);
+                        let n_inv_mod_p = avx._mm512_set1_epi64(self.n_inv_mod_p as i64);
+                        let n_inv_mod_p_shoup =
+                            avx._mm512_set1_epi64(self.n_inv_mod_p_shoup as i64);
+                        let p_barrett = avx._mm512_set1_epi64(self.p_barrett as i64);
+                        let p = avx._mm512_set1_epi64(self.p as i64);
+
+                        for (__lhs, rhs) in crate::izip!(lhs, rhs) {
+                            let lhs = cast(*__lhs);
+                            let rhs = cast(*rhs);
+
+                            // lhs × rhs
+                            let (lo, hi) = simd._mm512_mul_u64_u64_epu64(lhs, rhs);
+                            let c1 = avx._mm512_or_si512(
+                                avx._mm512_srlv_epi64(lo, big_q_m1),
+                                avx._mm512_sllv_epi64(hi, big_q_m1_complement),
+                            );
+                            let c3 = simd._mm512_mul_u64_u64_epu64(c1, p_barrett).1;
+                            let prod = avx._mm512_sub_epi64(lo, avx._mm512_mullox_epi64(p, c3));
+
+                            // normalization
+                            let shoup_q = simd._mm512_mul_u64_u64_epu64(prod, n_inv_mod_p_shoup).1;
+                            let t = avx._mm512_sub_epi64(
+                                avx._mm512_mullox_epi64(prod, n_inv_mod_p),
+                                avx._mm512_mullox_epi64(shoup_q, p),
+                            );
+
+                            *__lhs = cast(simd.small_mod_epu64(p, t));
+                        }
+                    },
+                );
+                return;
+            }
+
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            if let Some(simd) = crate::Avx2::try_new() {
+                simd.vectorize(
+                    #[inline(always)]
+                    move || {
+                        use pulp::cast;
+
+                        let avx = simd.avx2;
+                        let lhs = pulp::as_arrays_mut::<4, _>(lhs).0;
+                        let rhs = pulp::as_arrays::<4, _>(rhs).0;
+                        let big_q_m1 = simd.avx._mm256_set1_epi64x((self.big_q - 1) as i64);
+                        let big_q_m1_complement =
+                            simd.avx._mm256_set1_epi64x((64 - (self.big_q - 1)) as i64);
+                        let n_inv_mod_p = simd.avx._mm256_set1_epi64x(self.n_inv_mod_p as i64);
+                        let n_inv_mod_p_shoup =
+                            simd.avx._mm256_set1_epi64x(self.n_inv_mod_p_shoup as i64);
+                        let p_barrett = simd.avx._mm256_set1_epi64x(self.p_barrett as i64);
+                        let p = simd.avx._mm256_set1_epi64x(self.p as i64);
+
+                        for (__lhs, rhs) in crate::izip!(lhs, rhs) {
+                            let lhs = cast(*__lhs);
+                            let rhs = cast(*rhs);
+
+                            // lhs × rhs
+                            let (lo, hi) = simd._mm256_mul_u64_u64_epu64(lhs, rhs);
+                            let c1 = avx._mm256_or_si256(
+                                avx._mm256_srlv_epi64(lo, big_q_m1),
+                                avx._mm256_sllv_epi64(hi, big_q_m1_complement),
+                            );
+                            let c3 = simd._mm256_mul_u64_u64_epu64(c1, p_barrett).1;
+                            let prod =
+                                avx._mm256_sub_epi64(lo, simd._mm256_mul_u64_u64_epu64(p, c3).0);
+
+                            // normalization
+                            let shoup_q = simd._mm256_mul_u64_u64_epu64(prod, n_inv_mod_p_shoup).1;
+                            let t = avx._mm256_sub_epi64(
+                                simd._mm256_mul_u64_u64_epu64(prod, n_inv_mod_p).0,
+                                simd._mm256_mul_u64_u64_epu64(shoup_q, p).0,
+                            );
+
+                            *__lhs = cast(simd.small_mod_epu64(p, t));
+                        }
+                    },
+                );
+                return;
+            }
+
+            let big_q_m1 = self.big_q - 1;
+            let n_inv_mod_p = self.n_inv_mod_p;
+            let n_inv_mod_p_shoup = self.n_inv_mod_p_shoup;
+            let p_barrett = self.p_barrett;
+            let p = self.p;
+
+            for (__lhs, rhs) in crate::izip!(lhs, rhs) {
+                let lhs = *__lhs;
+                let rhs = *rhs;
+
+                let d = lhs as u128 * rhs as u128;
+                let c1 = (d >> big_q_m1) as u64;
+                let c3 = ((c1 as u128 * p_barrett as u128) >> 64) as u64;
+                let prod = (d as u64).wrapping_sub(p.wrapping_mul(c3));
+
+                let shoup_q = (((prod as u128) * (n_inv_mod_p_shoup as u128)) >> 64) as u64;
+                let t = u64::wrapping_sub(prod.wrapping_mul(n_inv_mod_p), shoup_q.wrapping_mul(p));
+
+                *__lhs = t.min(t.wrapping_sub(p));
+            }
+        } else {
+            let p_div = self.p_div;
+            let n_inv_mod_p = self.n_inv_mod_p;
+            for (__lhs, rhs) in crate::izip!(lhs, rhs) {
+                let lhs = *__lhs;
+                let rhs = *rhs;
+                let prod = Div64::rem_u128(lhs as u128 * rhs as u128, p_div);
+                let prod = Div64::rem_u128(prod as u128 * n_inv_mod_p as u128, p_div);
+                *__lhs = prod;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -492,8 +697,10 @@ mod tests {
                     prod[i] =
                         <u64 as PrimeModulus>::mul(Div64::new(p), lhs_fourier[i], rhs_fourier[i]);
                 }
-
                 plan.inv(&mut prod);
+
+                plan.mul_assign_normalize(&mut lhs_fourier, &rhs_fourier);
+                plan.inv(&mut lhs_fourier);
 
                 for x in &prod {
                     assert!(*x < p);
@@ -509,6 +716,7 @@ mod tests {
                         ),
                     );
                 }
+                assert_eq!(lhs_fourier, negacyclic_convolution);
             }
         }
     }

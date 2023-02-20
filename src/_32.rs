@@ -277,6 +277,13 @@ pub struct Plan {
     inv_twid_shoup: ABox<[u32]>,
     p: u32,
     p_div: Div32,
+
+    // used for elementwise product
+    p_barrett: u32,
+    big_q: u32,
+
+    n_inv_mod_p: u32,
+    n_inv_mod_p_shoup: u32,
 }
 
 impl Plan {
@@ -309,6 +316,12 @@ impl Plan {
                 init_negacyclic_twiddles(p, n, &mut twid, &mut inv_twid);
             }
 
+            let n_inv_mod_p = crate::prime::exp_mod32(p_div, n as u32, p - 2);
+            let n_inv_mod_p_shoup = (((n_inv_mod_p as u64) << 32) / p as u64) as u32;
+            let big_q = p.ilog2() + 1;
+            let big_l = big_q + 31;
+            let p_barrett = ((1u64 << big_l) / p as u64) as u32;
+
             Some(Self {
                 twid,
                 twid_shoup,
@@ -316,6 +329,10 @@ impl Plan {
                 inv_twid,
                 p,
                 p_div,
+                n_inv_mod_p,
+                n_inv_mod_p_shoup,
+                p_barrett,
+                big_q,
             })
         }
     }
@@ -420,6 +437,133 @@ impl Plan {
             generic::inv_scalar(buf, p, self.p_div, &self.inv_twid);
         }
     }
+
+    pub fn mul_assign_normalize(&self, lhs: &mut [u32], rhs: &[u32]) {
+        if self.p < (1 << 31) {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            #[cfg(feature = "nightly")]
+            if let Some(simd) = crate::Avx512::try_new() {
+                simd.vectorize(
+                    #[inline(always)]
+                    move || {
+                        use pulp::cast;
+
+                        let avx = simd.avx512f;
+                        let lhs = pulp::as_arrays_mut::<16, _>(lhs).0;
+                        let rhs = pulp::as_arrays::<16, _>(rhs).0;
+                        let big_q_m1 = avx._mm512_set1_epi32((self.big_q - 1) as i32);
+                        let big_q_m1_complement =
+                            avx._mm512_set1_epi32((32 - (self.big_q - 1)) as i32);
+                        let n_inv_mod_p = avx._mm512_set1_epi32(self.n_inv_mod_p as i32);
+                        let n_inv_mod_p_shoup =
+                            avx._mm512_set1_epi32(self.n_inv_mod_p_shoup as i32);
+                        let p_barrett = avx._mm512_set1_epi32(self.p_barrett as i32);
+                        let p = avx._mm512_set1_epi32(self.p as i32);
+
+                        for (__lhs, rhs) in crate::izip!(lhs, rhs) {
+                            let lhs = cast(*__lhs);
+                            let rhs = cast(*rhs);
+
+                            // lhs × rhs
+                            let (lo, hi) = simd._mm512_mul_u32_u32_epu32(lhs, rhs);
+                            let c1 = avx._mm512_or_si512(
+                                avx._mm512_srlv_epi32(lo, big_q_m1),
+                                avx._mm512_sllv_epi32(hi, big_q_m1_complement),
+                            );
+                            let c3 = simd._mm512_mul_u32_u32_epu32(c1, p_barrett).1;
+                            let prod = avx._mm512_sub_epi32(lo, avx._mm512_mullo_epi32(p, c3));
+
+                            // normalization
+                            let shoup_q = simd._mm512_mul_u32_u32_epu32(prod, n_inv_mod_p_shoup).1;
+                            let t = avx._mm512_sub_epi32(
+                                avx._mm512_mullo_epi32(prod, n_inv_mod_p),
+                                avx._mm512_mullo_epi32(shoup_q, p),
+                            );
+
+                            *__lhs = cast(simd.small_mod_epu32(p, t));
+                        }
+                    },
+                );
+                return;
+            }
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            if let Some(simd) = crate::Avx2::try_new() {
+                simd.vectorize(
+                    #[inline(always)]
+                    move || {
+                        use pulp::cast;
+
+                        let avx = simd.avx2;
+                        let lhs = pulp::as_arrays_mut::<8, _>(lhs).0;
+                        let rhs = pulp::as_arrays::<8, _>(rhs).0;
+                        let big_q_m1 = simd.avx._mm256_set1_epi32((self.big_q - 1) as i32);
+                        let big_q_m1_complement =
+                            simd.avx._mm256_set1_epi32((32 - (self.big_q - 1)) as i32);
+                        let n_inv_mod_p = simd.avx._mm256_set1_epi32(self.n_inv_mod_p as i32);
+                        let n_inv_mod_p_shoup =
+                            simd.avx._mm256_set1_epi32(self.n_inv_mod_p_shoup as i32);
+                        let p_barrett = simd.avx._mm256_set1_epi32(self.p_barrett as i32);
+                        let p = simd.avx._mm256_set1_epi32(self.p as i32);
+
+                        for (__lhs, rhs) in crate::izip!(lhs, rhs) {
+                            let lhs = cast(*__lhs);
+                            let rhs = cast(*rhs);
+
+                            // lhs × rhs
+                            let (lo, hi) = simd._mm256_mul_u32_u32_epu32(lhs, rhs);
+                            let c1 = avx._mm256_or_si256(
+                                avx._mm256_srlv_epi32(lo, big_q_m1),
+                                avx._mm256_sllv_epi32(hi, big_q_m1_complement),
+                            );
+                            let c3 = simd._mm256_mul_u32_u32_epu32(c1, p_barrett).1;
+                            let prod = avx._mm256_sub_epi32(lo, avx._mm256_mullo_epi32(p, c3));
+
+                            // normalization
+                            let shoup_q = simd._mm256_mul_u32_u32_epu32(prod, n_inv_mod_p_shoup).1;
+                            let t = avx._mm256_sub_epi32(
+                                avx._mm256_mullo_epi32(prod, n_inv_mod_p),
+                                avx._mm256_mullo_epi32(shoup_q, p),
+                            );
+
+                            *__lhs = cast(simd.small_mod_epu32(p, t));
+                        }
+                    },
+                );
+                return;
+            }
+
+            let big_q_m1 = self.big_q - 1;
+            let n_inv_mod_p = self.n_inv_mod_p;
+            let n_inv_mod_p_shoup = self.n_inv_mod_p_shoup;
+            let p_barrett = self.p_barrett;
+            let p = self.p;
+
+            for (__lhs, rhs) in crate::izip!(lhs, rhs) {
+                let lhs = *__lhs;
+                let rhs = *rhs;
+
+                let d = lhs as u64 * rhs as u64;
+                let c1 = (d >> big_q_m1) as u32;
+                let c3 = ((c1 as u64 * p_barrett as u64) >> 32) as u32;
+                let prod = (d as u32).wrapping_sub(p.wrapping_mul(c3));
+
+                let shoup_q = (((prod as u64) * (n_inv_mod_p_shoup as u64)) >> 32) as u32;
+                let t = u32::wrapping_sub(prod.wrapping_mul(n_inv_mod_p), shoup_q.wrapping_mul(p));
+
+                *__lhs = t.min(t.wrapping_sub(p));
+            }
+        } else {
+            let p_div = self.p_div;
+            let n_inv_mod_p = self.n_inv_mod_p;
+            for (__lhs, rhs) in crate::izip!(lhs, rhs) {
+                let lhs = *__lhs;
+                let rhs = *rhs;
+                let prod = Div32::rem_u64(lhs as u64 * rhs as u64, p_div);
+                let prod = Div32::rem_u64(prod as u64 * n_inv_mod_p as u64, p_div);
+                *__lhs = prod;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -450,8 +594,8 @@ mod tests {
     }
 
     #[inline(always)]
-    fn mul(p: Div32, a: u32, b: u32) -> u32 {
-        Div32::rem_u64(a as u64 * b as u64, p)
+    fn mul(p: u32, a: u32, b: u32) -> u32 {
+        ((a as u64 * b as u64) % p as u64) as u32
     }
 
     extern crate alloc;
@@ -486,11 +630,8 @@ mod tests {
                 let mut negacyclic_convolution = vec![0u32; n];
                 for i in 0..n {
                     for j in 0..n {
-                        full_convolution[i + j] = add(
-                            p,
-                            full_convolution[i + j],
-                            mul(Div32::new(p), lhs[i], rhs[j]),
-                        );
+                        full_convolution[i + j] =
+                            add(p, full_convolution[i + j], mul(p, lhs[i], rhs[j]));
                     }
                 }
                 for i in 0..n {
@@ -513,21 +654,21 @@ mod tests {
                 }
 
                 for i in 0..n {
-                    prod[i] = mul(Div32::new(p), lhs_fourier[i], rhs_fourier[i]);
+                    prod[i] = mul(p, lhs_fourier[i], rhs_fourier[i]);
                 }
-
                 plan.inv(&mut prod);
+
+                plan.mul_assign_normalize(&mut lhs_fourier, &rhs_fourier);
+                plan.inv(&mut lhs_fourier);
 
                 for x in &prod {
                     assert!(*x < p);
                 }
 
                 for i in 0..n {
-                    assert_eq!(
-                        prod[i],
-                        mul(Div32::new(p), negacyclic_convolution[i], n as u32),
-                    );
+                    assert_eq!(prod[i], mul(p, negacyclic_convolution[i], n as u32),);
                 }
+                assert_eq!(lhs_fourier, negacyclic_convolution);
             }
         }
     }

@@ -1,3 +1,4 @@
+use aligned_vec::avec;
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
@@ -442,8 +443,9 @@ fn reconstruct_32bit_01234_avx2(
     );
 
     let sign = simd._mm256_cmpgt_epu32(v4, half_p4);
-    let sign0 = avx._mm256_cvtepu32_epi64(simd.avx._mm256_castsi256_si128(sign));
-    let sign1 = avx._mm256_cvtepu32_epi64(simd.avx._mm256_extractf128_si256::<1>(sign));
+    // sign extend so that -1i32 becomes -1i64
+    let sign0 = avx._mm256_cvtepi32_epi64(simd.avx._mm256_castsi256_si128(sign));
+    let sign1 = avx._mm256_cvtepi32_epi64(simd.avx._mm256_extractf128_si256::<1>(sign));
 
     let v00 = avx._mm256_cvtepu32_epi64(simd.avx._mm256_castsi256_si128(v0));
     let v01 = avx._mm256_cvtepu32_epi64(simd.avx._mm256_extractf128_si256::<1>(v0));
@@ -989,6 +991,35 @@ impl Plan32 {
             *value = reconstruct_32bit_01234_v2(mod_p0, mod_p1, mod_p2, mod_p3, mod_p4);
         }
     }
+
+    pub fn negacyclic_polymul(&self, prod: &mut [u64], lhs: &[u64], rhs: &[u64]) {
+        let n = prod.len();
+        assert_eq!(n, lhs.len());
+        assert_eq!(n, rhs.len());
+
+        let mut lhs0 = avec![0; n];
+        let mut lhs1 = avec![0; n];
+        let mut lhs2 = avec![0; n];
+        let mut lhs3 = avec![0; n];
+        let mut lhs4 = avec![0; n];
+
+        let mut rhs0 = avec![0; n];
+        let mut rhs1 = avec![0; n];
+        let mut rhs2 = avec![0; n];
+        let mut rhs3 = avec![0; n];
+        let mut rhs4 = avec![0; n];
+
+        self.fwd(lhs, &mut lhs0, &mut lhs1, &mut lhs2, &mut lhs3, &mut lhs4);
+        self.fwd(rhs, &mut rhs0, &mut rhs1, &mut rhs2, &mut rhs3, &mut rhs4);
+
+        self.0.mul_assign_normalize(&mut lhs0, &rhs0);
+        self.1.mul_assign_normalize(&mut lhs1, &rhs1);
+        self.2.mul_assign_normalize(&mut lhs2, &rhs2);
+        self.3.mul_assign_normalize(&mut lhs3, &rhs3);
+        self.4.mul_assign_normalize(&mut lhs4, &rhs4);
+
+        self.inv(prod, &mut lhs0, &mut lhs1, &mut lhs2, &mut lhs3, &mut lhs4);
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -1037,6 +1068,29 @@ impl Plan52 {
 
         reconstruct_slice_52bit_012_avx512(self.3, value, mod_p0, mod_p1, mod_p2);
     }
+
+    pub fn negacyclic_polymul(&self, prod: &mut [u64], lhs: &[u64], rhs: &[u64]) {
+        let n = prod.len();
+        assert_eq!(n, lhs.len());
+        assert_eq!(n, rhs.len());
+
+        let mut lhs0 = avec![0; n];
+        let mut lhs1 = avec![0; n];
+        let mut lhs2 = avec![0; n];
+
+        let mut rhs0 = avec![0; n];
+        let mut rhs1 = avec![0; n];
+        let mut rhs2 = avec![0; n];
+
+        self.fwd(lhs, &mut lhs0, &mut lhs1, &mut lhs2);
+        self.fwd(rhs, &mut rhs0, &mut rhs1, &mut rhs2);
+
+        self.0.mul_assign_normalize(&mut lhs0, &rhs0);
+        self.1.mul_assign_normalize(&mut lhs1, &rhs1);
+        self.2.mul_assign_normalize(&mut lhs2, &rhs2);
+
+        self.inv(prod, &mut lhs0, &mut lhs1, &mut lhs2);
+    }
 }
 
 #[cfg(test)]
@@ -1075,6 +1129,25 @@ mod tests {
             for (&value, &value_roundtrip) in crate::izip!(&value, &value_roundtrip) {
                 assert_eq!(value_roundtrip, value.wrapping_mul(n as u64));
             }
+
+            let lhs = (0..n).map(|_| random::<u64>()).collect::<Vec<_>>();
+            let rhs = (0..n).map(|_| random::<u64>()).collect::<Vec<_>>();
+            let mut full_convolution = vec![0u64; 2 * n];
+            let mut negacyclic_convolution = vec![0u64; n];
+            for i in 0..n {
+                for j in 0..n {
+                    full_convolution[i + j] =
+                        full_convolution[i + j].wrapping_add(lhs[i].wrapping_mul(rhs[j]));
+                }
+            }
+            for i in 0..n {
+                negacyclic_convolution[i] =
+                    full_convolution[i].wrapping_sub(full_convolution[i + n]);
+            }
+
+            let mut prod = vec![0; n];
+            plan.negacyclic_polymul(&mut prod, &lhs, &rhs);
+            assert_eq!(prod, negacyclic_convolution);
         }
     }
 
@@ -1095,10 +1168,30 @@ mod tests {
                 for (&value, &value_roundtrip) in crate::izip!(&value, &value_roundtrip) {
                     assert_eq!(value_roundtrip, value.wrapping_mul(n as u64));
                 }
+
+                let lhs = (0..n).map(|_| random::<u64>()).collect::<Vec<_>>();
+                let rhs = (0..n).map(|_| random::<u64>()).collect::<Vec<_>>();
+                let mut full_convolution = vec![0u64; 2 * n];
+                let mut negacyclic_convolution = vec![0u64; n];
+                for i in 0..n {
+                    for j in 0..n {
+                        full_convolution[i + j] =
+                            full_convolution[i + j].wrapping_add(lhs[i].wrapping_mul(rhs[j]));
+                    }
+                }
+                for i in 0..n {
+                    negacyclic_convolution[i] =
+                        full_convolution[i].wrapping_sub(full_convolution[i + n]);
+                }
+
+                let mut prod = vec![0; n];
+                plan.negacyclic_polymul(&mut prod, &lhs, &rhs);
+                assert_eq!(prod, negacyclic_convolution);
             }
         }
     }
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
     fn reconstruct_32bit_avx() {
         for n in [16, 32, 64, 256, 1024, 2048] {
@@ -1106,6 +1199,7 @@ mod tests {
 
             let mut value = vec![0; n];
             let mut value_avx2 = vec![0; n];
+            #[cfg(feature = "nightly")]
             let mut value_avx512 = vec![0; n];
             let mod_p0 = (0..n).map(|_| random::<u32>() % P0).collect::<Vec<_>>();
             let mod_p1 = (0..n).map(|_| random::<u32>() % P1).collect::<Vec<_>>();
@@ -1131,6 +1225,7 @@ mod tests {
                 );
                 assert_eq!(value, value_avx2);
             }
+            #[cfg(feature = "nightly")]
             if let Some(simd) = crate::Avx512::try_new() {
                 reconstruct_slice_32bit_01234_avx512(
                     simd,
