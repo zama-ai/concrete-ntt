@@ -592,6 +592,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn generate_primes() {
         let mut p = 1u64 << 30;

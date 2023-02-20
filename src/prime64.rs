@@ -676,7 +676,6 @@ mod tests {
                 Solinas::P,
                 largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 63, u64::MAX).unwrap(),
             ] {
-                dbg!(p);
                 let plan = Plan::try_new(n, p).unwrap();
 
                 let mut lhs = vec![0u64; n];

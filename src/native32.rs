@@ -514,6 +514,9 @@ mod tests {
     use super::*;
     use rand::random;
 
+    extern crate alloc;
+    use alloc::{vec, vec::Vec};
+
     #[test]
     fn reconstruct_32bit() {
         for n in [32, 64, 256, 1024, 2048] {

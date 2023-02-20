@@ -443,6 +443,9 @@ mod tests {
     };
     use rand::random;
 
+    extern crate alloc;
+    use alloc::vec;
+
     #[inline(always)]
     fn add(p: u32, a: u32, b: u32) -> u32 {
         let neg_b = p - b;
