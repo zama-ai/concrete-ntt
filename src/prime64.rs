@@ -205,7 +205,8 @@ fn init_negacyclic_twiddles_shoup(
     }
 }
 
-#[derive(Debug, Clone)]
+/// Negacyclic NTT plan for 64bit primes.
+#[derive(Clone)]
 pub struct Plan {
     twid: ABox<[u64]>,
     twid_shoup: ABox<[u64]>,
@@ -222,7 +223,18 @@ pub struct Plan {
     n_inv_mod_p_shoup: u64,
 }
 
+impl core::fmt::Debug for Plan {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Plan")
+            .field("ntt_size", &self.ntt_size())
+            .field("modulus", &self.modulus())
+            .finish()
+    }
+}
+
 impl Plan {
+    /// Returns a negacyclic NTT plan for the given polynomial size and modulus, or `None` if no
+    /// suitable roots of unity can be found for the wanted parameters.
     pub fn try_new(n: usize, p: u64) -> Option<Self> {
         let p_div = Div64::new(p);
         if find_primitive_root64(p_div, 2 * n as u64).is_none() {
@@ -284,11 +296,23 @@ impl Plan {
         }
     }
 
+    /// Returns the polynomial size of the negacyclic NTT plan.
     #[inline]
     pub fn ntt_size(&self) -> usize {
         self.twid.len()
     }
 
+    /// Returns the modulus of the negacyclic NTT plan.
+    #[inline]
+    pub fn modulus(&self) -> u64 {
+        self.p
+    }
+
+    /// Applies a forward negacyclic NTT transform in place to the given buffer.
+    ///
+    /// # Note
+    /// On entry, the buffer holds the polynomial coefficients in standard order. On exit, the
+    /// buffer holds the negacyclic NTT transform coefficients in bit reversed order.
     pub fn fwd(&self, buf: &mut [u64]) {
         assert_eq!(buf.len(), self.ntt_size());
         let p = self.p;
@@ -362,6 +386,11 @@ impl Plan {
         }
     }
 
+    /// Applies an inverse negacyclic NTT transform in place to the given buffer.
+    ///
+    /// # Note
+    /// On entry, the buffer holds the negacyclic NTT transform coefficients in bit reversed order.
+    /// On exit, the buffer holds the polynomial coefficients in standard order.
     pub fn inv(&self, buf: &mut [u64]) {
         assert_eq!(buf.len(), self.ntt_size());
         let p = self.p;
@@ -435,6 +464,8 @@ impl Plan {
         }
     }
 
+    /// Computes the elementwise product of `lhs` and `rhs`, multiplied by the inverse of the
+    /// polynomial modulo the NTT modulus, and stores the result in `lhs`.
     pub fn mul_assign_normalize(&self, lhs: &mut [u64], rhs: &[u64]) {
         let p = self.p;
 
@@ -627,7 +658,7 @@ mod tests {
     use super::*;
     use crate::{
         fastdiv::Div64, prime::largest_prime_in_arithmetic_progression64,
-        _64::generic_solinas::PrimeModulus,
+        prime64::generic_solinas::PrimeModulus,
     };
     use alloc::vec;
     use rand::random;

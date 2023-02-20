@@ -75,7 +75,7 @@ pub const fn find_primitive_root64(p: Div64, degree: u64) -> Option<u64> {
     let (q, s) = get_q_s64(p);
     let z = match get_z64(p) {
         Some(z) => z,
-        None => panic!(),
+        None => return None,
     };
 
     let mut i = 0;

@@ -12,7 +12,7 @@ use core::arch::x86_64::*;
 use core::{fmt::Debug, iter::zip};
 use pulp::{as_arrays, as_arrays_mut, cast};
 
-pub trait PrimeModulus: Debug + Copy {
+pub(crate) trait PrimeModulus: Debug + Copy {
     type Div: Debug + Copy;
 
     fn add(self, a: u64, b: u64) -> u64;
@@ -21,7 +21,7 @@ pub trait PrimeModulus: Debug + Copy {
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub trait PrimeModulusAvx2: Debug + Copy {
+pub(crate) trait PrimeModulusAvx2: Debug + Copy {
     type Div: Debug + Copy;
 
     fn add(self, simd: Avx2, a: __m256i, b: __m256i) -> __m256i;
@@ -31,7 +31,7 @@ pub trait PrimeModulusAvx2: Debug + Copy {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub trait PrimeModulusAvx512: Debug + Copy {
+pub(crate) trait PrimeModulusAvx512: Debug + Copy {
     type Div: Debug + Copy;
 
     fn add(self, simd: Avx512, a: __m512i, b: __m512i) -> __m512i;
@@ -465,7 +465,7 @@ impl PrimeModulusAvx512 for Solinas {
     }
 }
 
-pub fn fwd_breadth_first_scalar<P: PrimeModulus>(
+pub(crate) fn fwd_breadth_first_scalar<P: PrimeModulus>(
     data: &mut [u64],
     p: P,
     p_div: P::Div,
@@ -499,7 +499,7 @@ pub fn fwd_breadth_first_scalar<P: PrimeModulus>(
     }
 }
 
-pub fn inv_breadth_first_scalar<P: PrimeModulus>(
+pub(crate) fn inv_breadth_first_scalar<P: PrimeModulus>(
     data: &mut [u64],
     p: P,
     p_div: P::Div,
@@ -532,7 +532,7 @@ pub fn inv_breadth_first_scalar<P: PrimeModulus>(
     }
 }
 
-pub fn inv_depth_first_scalar<P: PrimeModulus>(
+pub(crate) fn inv_depth_first_scalar<P: PrimeModulus>(
     data: &mut [u64],
     p: P,
     p_div: P::Div,
@@ -580,7 +580,7 @@ pub fn inv_depth_first_scalar<P: PrimeModulus>(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn fwd_breadth_first_avx2<P: PrimeModulusAvx2>(
+pub(crate) fn fwd_breadth_first_avx2<P: PrimeModulusAvx2>(
     simd: Avx2,
     data: &mut [u64],
     p: P,
@@ -660,7 +660,7 @@ pub fn fwd_breadth_first_avx2<P: PrimeModulusAvx2>(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn inv_breadth_first_avx2<P: PrimeModulusAvx2>(
+pub(crate) fn inv_breadth_first_avx2<P: PrimeModulusAvx2>(
     simd: Avx2,
     data: &mut [u64],
     p: P,
@@ -757,7 +757,7 @@ pub fn inv_breadth_first_avx2<P: PrimeModulusAvx2>(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn fwd_breadth_first_avx512<P: PrimeModulusAvx512>(
+pub(crate) fn fwd_breadth_first_avx512<P: PrimeModulusAvx512>(
     simd: Avx512,
     data: &mut [u64],
     p: P,
@@ -856,7 +856,7 @@ pub fn fwd_breadth_first_avx512<P: PrimeModulusAvx512>(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn fwd_depth_first_avx512<P: PrimeModulusAvx512>(
+pub(crate) fn fwd_depth_first_avx512<P: PrimeModulusAvx512>(
     simd: Avx512,
     data: &mut [u64],
     p: P,
@@ -930,7 +930,7 @@ pub fn fwd_depth_first_avx512<P: PrimeModulusAvx512>(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn inv_depth_first_avx512<P: PrimeModulusAvx512>(
+pub(crate) fn inv_depth_first_avx512<P: PrimeModulusAvx512>(
     simd: Avx512,
     data: &mut [u64],
     p: P,
@@ -1005,7 +1005,7 @@ pub fn inv_depth_first_avx512<P: PrimeModulusAvx512>(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn inv_depth_first_avx2<P: PrimeModulusAvx2>(
+pub(crate) fn inv_depth_first_avx2<P: PrimeModulusAvx2>(
     simd: Avx2,
     data: &mut [u64],
     p: P,
@@ -1072,7 +1072,7 @@ pub fn inv_depth_first_avx2<P: PrimeModulusAvx2>(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn fwd_depth_first_avx2<P: PrimeModulusAvx2>(
+pub(crate) fn fwd_depth_first_avx2<P: PrimeModulusAvx2>(
     simd: Avx2,
     data: &mut [u64],
     p: P,
@@ -1136,7 +1136,7 @@ pub fn fwd_depth_first_avx2<P: PrimeModulusAvx2>(
     );
 }
 
-pub fn fwd_depth_first_scalar<P: PrimeModulus>(
+pub(crate) fn fwd_depth_first_scalar<P: PrimeModulus>(
     data: &mut [u64],
     p: P,
     p_div: P::Div,
@@ -1188,7 +1188,7 @@ pub fn fwd_depth_first_scalar<P: PrimeModulus>(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn fwd_avx512<P: PrimeModulusAvx512>(
+pub(crate) fn fwd_avx512<P: PrimeModulusAvx512>(
     simd: Avx512,
     data: &mut [u64],
     p: P,
@@ -1199,7 +1199,7 @@ pub fn fwd_avx512<P: PrimeModulusAvx512>(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn fwd_avx2<P: PrimeModulusAvx2>(
+pub(crate) fn fwd_avx2<P: PrimeModulusAvx2>(
     simd: Avx2,
     data: &mut [u64],
     p: P,
@@ -1209,13 +1209,13 @@ pub fn fwd_avx2<P: PrimeModulusAvx2>(
     fwd_depth_first_avx2(simd, data, p, p_div, twid, 0, 0);
 }
 
-pub fn fwd_scalar<P: PrimeModulus>(data: &mut [u64], p: P, p_div: P::Div, twid: &[u64]) {
+pub(crate) fn fwd_scalar<P: PrimeModulus>(data: &mut [u64], p: P, p_div: P::Div, twid: &[u64]) {
     fwd_depth_first_scalar(data, p, p_div, twid, 0, 0);
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn inv_avx512<P: PrimeModulusAvx512>(
+pub(crate) fn inv_avx512<P: PrimeModulusAvx512>(
     simd: Avx512,
     data: &mut [u64],
     p: P,
@@ -1226,7 +1226,7 @@ pub fn inv_avx512<P: PrimeModulusAvx512>(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn inv_avx2<P: PrimeModulusAvx2>(
+pub(crate) fn inv_avx2<P: PrimeModulusAvx2>(
     simd: Avx2,
     data: &mut [u64],
     p: P,
@@ -1236,13 +1236,13 @@ pub fn inv_avx2<P: PrimeModulusAvx2>(
     inv_depth_first_avx2(simd, data, p, p_div, twid, 0, 0);
 }
 
-pub fn inv_scalar<P: PrimeModulus>(data: &mut [u64], p: P, p_div: P::Div, twid: &[u64]) {
+pub(crate) fn inv_scalar<P: PrimeModulus>(data: &mut [u64], p: P, p_div: P::Div, twid: &[u64]) {
     inv_depth_first_scalar(data, p, p_div, twid, 0, 0);
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn inv_breadth_first_avx512<P: PrimeModulusAvx512>(
+pub(crate) fn inv_breadth_first_avx512<P: PrimeModulusAvx512>(
     simd: Avx512,
     data: &mut [u64],
     p: P,
@@ -1362,7 +1362,7 @@ pub fn inv_breadth_first_avx512<P: PrimeModulusAvx512>(
 
 #[cfg(test)]
 mod tests {
-    use crate::_64::init_negacyclic_twiddles;
+    use crate::prime64::init_negacyclic_twiddles;
 
     use super::*;
     use alloc::vec;

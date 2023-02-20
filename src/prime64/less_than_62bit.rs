@@ -11,7 +11,7 @@ use core::arch::x86_64::*;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 #[inline(always)]
-pub fn fwd_butterfly_avx512(
+pub(crate) fn fwd_butterfly_avx512(
     simd: Avx512,
     z0: __m512i,
     z1: __m512i,
@@ -38,7 +38,7 @@ pub fn fwd_butterfly_avx512(
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 #[inline(always)]
-pub fn fwd_last_butterfly_avx512(
+pub(crate) fn fwd_last_butterfly_avx512(
     simd: Avx512,
     z0: __m512i,
     z1: __m512i,
@@ -66,7 +66,7 @@ pub fn fwd_last_butterfly_avx512(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
-pub fn fwd_butterfly_avx2(
+pub(crate) fn fwd_butterfly_avx2(
     simd: Avx2,
     z0: __m256i,
     z1: __m256i,
@@ -92,7 +92,7 @@ pub fn fwd_butterfly_avx2(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
-pub fn fwd_last_butterfly_avx2(
+pub(crate) fn fwd_last_butterfly_avx2(
     simd: Avx2,
     z0: __m256i,
     z1: __m256i,
@@ -119,7 +119,7 @@ pub fn fwd_last_butterfly_avx2(
 }
 
 #[inline(always)]
-pub fn fwd_butterfly_scalar(
+pub(crate) fn fwd_butterfly_scalar(
     z0: u64,
     z1: u64,
     w: u64,
@@ -136,7 +136,7 @@ pub fn fwd_butterfly_scalar(
 }
 
 #[inline(always)]
-pub fn fwd_last_butterfly_scalar(
+pub(crate) fn fwd_last_butterfly_scalar(
     z0: u64,
     z1: u64,
     w: u64,
@@ -161,7 +161,7 @@ pub fn fwd_last_butterfly_scalar(
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 #[inline(always)]
-pub fn inv_butterfly_avx512(
+pub(crate) fn inv_butterfly_avx512(
     simd: Avx512,
     z0: __m512i,
     z1: __m512i,
@@ -190,7 +190,7 @@ pub fn inv_butterfly_avx512(
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 #[inline(always)]
-pub fn inv_last_butterfly_avx512(
+pub(crate) fn inv_last_butterfly_avx512(
     simd: Avx512,
     z0: __m512i,
     z1: __m512i,
@@ -220,7 +220,7 @@ pub fn inv_last_butterfly_avx512(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
-pub fn inv_butterfly_avx2(
+pub(crate) fn inv_butterfly_avx2(
     simd: Avx2,
     z0: __m256i,
     z1: __m256i,
@@ -248,7 +248,7 @@ pub fn inv_butterfly_avx2(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
-pub fn inv_last_butterfly_avx2(
+pub(crate) fn inv_last_butterfly_avx2(
     simd: Avx2,
     z0: __m256i,
     z1: __m256i,
@@ -277,7 +277,7 @@ pub fn inv_last_butterfly_avx2(
 }
 
 #[inline(always)]
-pub fn inv_butterfly_scalar(
+pub(crate) fn inv_butterfly_scalar(
     z0: u64,
     z1: u64,
     w: u64,
@@ -297,7 +297,7 @@ pub fn inv_butterfly_scalar(
 }
 
 #[inline(always)]
-pub fn inv_last_butterfly_scalar(
+pub(crate) fn inv_last_butterfly_scalar(
     z0: u64,
     z1: u64,
     w: u64,
@@ -320,7 +320,7 @@ pub fn inv_last_butterfly_scalar(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn fwd_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+pub(crate) fn fwd_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
     super::shoup::fwd_depth_first_avx512(
         simd,
         p,
@@ -342,7 +342,7 @@ pub fn fwd_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_sho
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn inv_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+pub(crate) fn inv_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
     super::shoup::inv_depth_first_avx512(
         simd,
         p,
@@ -363,7 +363,7 @@ pub fn inv_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_sho
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn fwd_avx2(simd: Avx2, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+pub(crate) fn fwd_avx2(simd: Avx2, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
     super::shoup::fwd_depth_first_avx2(
         simd,
         p,
@@ -384,7 +384,7 @@ pub fn fwd_avx2(simd: Avx2, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: 
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn inv_avx2(simd: Avx2, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+pub(crate) fn inv_avx2(simd: Avx2, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
     super::shoup::inv_depth_first_avx2(
         simd,
         p,
@@ -404,7 +404,7 @@ pub fn inv_avx2(simd: Avx2, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: 
     )
 }
 
-pub fn fwd_scalar(p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+pub(crate) fn fwd_scalar(p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
     super::shoup::fwd_depth_first_scalar(
         p,
         data,
@@ -423,7 +423,7 @@ pub fn fwd_scalar(p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
     )
 }
 
-pub fn inv_scalar(p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+pub(crate) fn inv_scalar(p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
     super::shoup::inv_depth_first_scalar(
         p,
         data,
@@ -447,7 +447,7 @@ mod tests {
     use crate::{
         fastdiv::Div64,
         prime::largest_prime_in_arithmetic_progression64,
-        _64::{generic_solinas::PrimeModulus, init_negacyclic_twiddles_shoup},
+        prime64::{generic_solinas::PrimeModulus, init_negacyclic_twiddles_shoup},
     };
 
     use super::*;

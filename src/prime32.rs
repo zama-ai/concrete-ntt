@@ -269,7 +269,8 @@ fn init_negacyclic_twiddles_shoup(
     }
 }
 
-#[derive(Debug, Clone)]
+/// Negacyclic NTT plan for 32bit primes.
+#[derive(Clone)]
 pub struct Plan {
     twid: ABox<[u32]>,
     twid_shoup: ABox<[u32]>,
@@ -286,48 +287,62 @@ pub struct Plan {
     n_inv_mod_p_shoup: u32,
 }
 
+impl core::fmt::Debug for Plan {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Plan")
+            .field("ntt_size", &self.ntt_size())
+            .field("modulus", &self.modulus())
+            .finish()
+    }
+}
+
 impl Plan {
-    pub fn try_new(n: usize, p: u32) -> Option<Self> {
-        let p_div = Div32::new(p);
-        if n < 32 || find_primitive_root64(Div64::new(p as u64), 2 * n as u64).is_none() {
+    /// Returns a negacyclic NTT plan for the given polynomial size and modulus, or `None` if no
+    /// suitable roots of unity can be found for the wanted parameters.
+    pub fn try_new(polynomial_size: usize, modulus: u32) -> Option<Self> {
+        let p_div = Div32::new(modulus);
+        if polynomial_size < 32
+            || find_primitive_root64(Div64::new(modulus as u64), 2 * polynomial_size as u64)
+                .is_none()
+        {
             None
         } else {
-            let mut twid = avec![0u32; n].into_boxed_slice();
-            let mut inv_twid = avec![0u32; n].into_boxed_slice();
-            let (mut twid_shoup, mut inv_twid_shoup) = if p < (1u32 << 31) {
+            let mut twid = avec![0u32; polynomial_size].into_boxed_slice();
+            let mut inv_twid = avec![0u32; polynomial_size].into_boxed_slice();
+            let (mut twid_shoup, mut inv_twid_shoup) = if modulus < (1u32 << 31) {
                 (
-                    avec![0u32; n].into_boxed_slice(),
-                    avec![0u32; n].into_boxed_slice(),
+                    avec![0u32; polynomial_size].into_boxed_slice(),
+                    avec![0u32; polynomial_size].into_boxed_slice(),
                 )
             } else {
                 (avec![].into_boxed_slice(), avec![].into_boxed_slice())
             };
 
-            if p < (1u32 << 31) {
+            if modulus < (1u32 << 31) {
                 init_negacyclic_twiddles_shoup(
-                    p,
-                    n,
+                    modulus,
+                    polynomial_size,
                     &mut twid,
                     &mut twid_shoup,
                     &mut inv_twid,
                     &mut inv_twid_shoup,
                 );
             } else {
-                init_negacyclic_twiddles(p, n, &mut twid, &mut inv_twid);
+                init_negacyclic_twiddles(modulus, polynomial_size, &mut twid, &mut inv_twid);
             }
 
-            let n_inv_mod_p = crate::prime::exp_mod32(p_div, n as u32, p - 2);
-            let n_inv_mod_p_shoup = (((n_inv_mod_p as u64) << 32) / p as u64) as u32;
-            let big_q = p.ilog2() + 1;
+            let n_inv_mod_p = crate::prime::exp_mod32(p_div, polynomial_size as u32, modulus - 2);
+            let n_inv_mod_p_shoup = (((n_inv_mod_p as u64) << 32) / modulus as u64) as u32;
+            let big_q = modulus.ilog2() + 1;
             let big_l = big_q + 31;
-            let p_barrett = ((1u64 << big_l) / p as u64) as u32;
+            let p_barrett = ((1u64 << big_l) / modulus as u64) as u32;
 
             Some(Self {
                 twid,
                 twid_shoup,
                 inv_twid_shoup,
                 inv_twid,
-                p,
+                p: modulus,
                 p_div,
                 n_inv_mod_p,
                 n_inv_mod_p_shoup,
@@ -337,11 +352,23 @@ impl Plan {
         }
     }
 
+    /// Returns the polynomial size of the negacyclic NTT plan.
     #[inline]
     pub fn ntt_size(&self) -> usize {
         self.twid.len()
     }
 
+    /// Returns the modulus of the negacyclic NTT plan.
+    #[inline]
+    pub fn modulus(&self) -> u32 {
+        self.p
+    }
+
+    /// Applies a forward negacyclic NTT transform in place to the given buffer.
+    ///
+    /// # Note
+    /// On entry, the buffer holds the polynomial coefficients in standard order. On exit, the
+    /// buffer holds the negacyclic NTT transform coefficients in bit reversed order.
     pub fn fwd(&self, buf: &mut [u32]) {
         assert_eq!(buf.len(), self.ntt_size());
         let p = self.p;
@@ -390,6 +417,11 @@ impl Plan {
         }
     }
 
+    /// Applies an inverse negacyclic NTT transform in place to the given buffer.
+    ///
+    /// # Note
+    /// On entry, the buffer holds the negacyclic NTT transform coefficients in bit reversed order.
+    /// On exit, the buffer holds the polynomial coefficients in standard order.
     pub fn inv(&self, buf: &mut [u32]) {
         assert_eq!(buf.len(), self.ntt_size());
         let p = self.p;
@@ -438,6 +470,8 @@ impl Plan {
         }
     }
 
+    /// Computes the elementwise product of `lhs` and `rhs`, multiplied by the inverse of the
+    /// polynomial modulo the NTT modulus, and stores the result in `lhs`.
     pub fn mul_assign_normalize(&self, lhs: &mut [u32], rhs: &[u32]) {
         if self.p < (1 << 31) {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

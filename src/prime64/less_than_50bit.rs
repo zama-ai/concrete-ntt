@@ -5,7 +5,7 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 #[inline(always)]
-pub fn fwd_butterfly_avx512(
+pub(crate) fn fwd_butterfly_avx512(
     simd: Avx512,
     z0: __m512i,
     z1: __m512i,
@@ -15,25 +15,24 @@ pub fn fwd_butterfly_avx512(
     neg_p: __m512i,
     two_p: __m512i,
 ) -> (__m512i, __m512i) {
-    let _ = two_p;
+    let _ = p;
     let avx = simd.avx512f;
     let fma = simd.avx512ifma;
-    let z0 = simd.small_mod_epu64(p, z0);
+    let z0 = simd.small_mod_epu64(two_p, z0);
     let zero = avx._mm512_setzero_si512();
     let shoup_q = fma._mm512_madd52hi_epu64(zero, z1, w_shoup);
     let t = avx._mm512_and_si512(
         avx._mm512_set1_epi64(((1u64 << 52) - 1u64) as i64),
         fma._mm512_madd52lo_epu64(fma._mm512_madd52lo_epu64(zero, z1, w), shoup_q, neg_p),
     );
-    let t = simd.small_mod_epu64(p, t);
     (
         avx._mm512_add_epi64(z0, t),
-        avx._mm512_add_epi64(avx._mm512_sub_epi64(z0, t), p),
+        avx._mm512_add_epi64(avx._mm512_sub_epi64(z0, t), two_p),
     )
 }
 
 #[inline(always)]
-pub fn fwd_last_butterfly_avx512(
+pub(crate) fn fwd_last_butterfly_avx512(
     simd: Avx512,
     z0: __m512i,
     z1: __m512i,
@@ -43,9 +42,9 @@ pub fn fwd_last_butterfly_avx512(
     neg_p: __m512i,
     two_p: __m512i,
 ) -> (__m512i, __m512i) {
-    let _ = two_p;
     let avx = simd.avx512f;
     let fma = simd.avx512ifma;
+    let z0 = simd.small_mod_epu64(two_p, z0);
     let z0 = simd.small_mod_epu64(p, z0);
     let zero = avx._mm512_setzero_si512();
     let shoup_q = fma._mm512_madd52hi_epu64(zero, z1, w_shoup);
@@ -61,7 +60,7 @@ pub fn fwd_last_butterfly_avx512(
 }
 
 #[inline(always)]
-pub fn inv_butterfly_avx512(
+pub(crate) fn inv_butterfly_avx512(
     simd: Avx512,
     z0: __m512i,
     z1: __m512i,
@@ -71,13 +70,43 @@ pub fn inv_butterfly_avx512(
     neg_p: __m512i,
     two_p: __m512i,
 ) -> (__m512i, __m512i) {
-    let _ = two_p;
+    let _ = p;
     let avx = simd.avx512f;
     let fma = simd.avx512ifma;
 
     let y0 = avx._mm512_add_epi64(z0, z1);
+    let y0 = simd.small_mod_epu64(two_p, y0);
+    let t = avx._mm512_add_epi64(avx._mm512_sub_epi64(z0, z1), two_p);
+
+    let zero = avx._mm512_setzero_si512();
+    let shoup_q = fma._mm512_madd52hi_epu64(zero, t, w_shoup);
+    let y1 = avx._mm512_and_si512(
+        avx._mm512_set1_epi64(((1u64 << 52) - 1u64) as i64),
+        fma._mm512_madd52lo_epu64(fma._mm512_madd52lo_epu64(zero, t, w), shoup_q, neg_p),
+    );
+
+    (y0, y1)
+}
+
+#[inline(always)]
+pub(crate) fn inv_last_butterfly_avx512(
+    simd: Avx512,
+    z0: __m512i,
+    z1: __m512i,
+    w: __m512i,
+    w_shoup: __m512i,
+    p: __m512i,
+    neg_p: __m512i,
+    two_p: __m512i,
+) -> (__m512i, __m512i) {
+    let _ = p;
+    let avx = simd.avx512f;
+    let fma = simd.avx512ifma;
+
+    let y0 = avx._mm512_add_epi64(z0, z1);
+    let y0 = simd.small_mod_epu64(two_p, y0);
     let y0 = simd.small_mod_epu64(p, y0);
-    let t = avx._mm512_add_epi64(avx._mm512_sub_epi64(z0, z1), p);
+    let t = avx._mm512_add_epi64(avx._mm512_sub_epi64(z0, z1), two_p);
 
     let zero = avx._mm512_setzero_si512();
     let shoup_q = fma._mm512_madd52hi_epu64(zero, t, w_shoup);
@@ -90,7 +119,7 @@ pub fn inv_butterfly_avx512(
     (y0, y1)
 }
 
-pub fn fwd_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+pub(crate) fn fwd_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
     super::shoup::fwd_depth_first_avx512(
         simd,
         p,
@@ -110,8 +139,8 @@ pub fn fwd_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_sho
     )
 }
 
-pub fn inv_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
-    super::shoup::inv_breadth_first_avx512(
+pub(crate) fn inv_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+    super::shoup::inv_depth_first_avx512(
         simd,
         p,
         data,
@@ -125,7 +154,7 @@ pub fn inv_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_sho
         },
         #[inline(always)]
         |simd, z0, z1, w, w_shoup, p, neg_p, two_p| {
-            inv_butterfly_avx512(simd, z0, z1, w, w_shoup, p, neg_p, two_p)
+            inv_last_butterfly_avx512(simd, z0, z1, w, w_shoup, p, neg_p, two_p)
         },
     )
 }
@@ -135,7 +164,7 @@ mod tests {
     use crate::{
         fastdiv::Div64,
         prime::largest_prime_in_arithmetic_progression64,
-        _64::{generic_solinas::PrimeModulus, init_negacyclic_twiddles_shoup},
+        prime64::{generic_solinas::PrimeModulus, init_negacyclic_twiddles_shoup},
     };
 
     use super::*;
@@ -148,7 +177,7 @@ mod tests {
     fn test_product() {
         if let Some(simd) = Avx512::try_new() {
             for n in [16, 32, 64, 128, 256, 512, 1024] {
-                let p = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 50, 1 << 51)
+                let p = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 49, 1 << 50)
                     .unwrap();
 
                 let mut lhs = vec![0u64; n];

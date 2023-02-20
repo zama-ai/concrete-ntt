@@ -13,7 +13,7 @@ use pulp::{as_arrays, as_arrays_mut, cast};
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn fwd_breadth_first_avx512(
+pub(crate) fn fwd_breadth_first_avx512(
     simd: Avx512,
     p: u64,
     data: &mut [u64],
@@ -145,7 +145,7 @@ pub fn fwd_breadth_first_avx512(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn fwd_depth_first_avx512(
+pub(crate) fn fwd_depth_first_avx512(
     simd: Avx512,
     p: u64,
     data: &mut [u64],
@@ -255,7 +255,7 @@ pub fn fwd_depth_first_avx512(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn fwd_breadth_first_avx2(
+pub(crate) fn fwd_breadth_first_avx2(
     simd: Avx2,
     p: u64,
     data: &mut [u64],
@@ -367,7 +367,7 @@ pub fn fwd_breadth_first_avx2(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn fwd_depth_first_avx2(
+pub(crate) fn fwd_depth_first_avx2(
     simd: Avx2,
     p: u64,
     data: &mut [u64],
@@ -643,7 +643,7 @@ pub fn fwd_depth_first_scalar(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn inv_breadth_first_avx512(
+pub(crate) fn inv_breadth_first_avx512(
     simd: Avx512,
     p: u64,
     data: &mut [u64],
@@ -806,7 +806,7 @@ pub fn inv_breadth_first_avx512(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn inv_depth_first_avx512(
+pub(crate) fn inv_depth_first_avx512(
     simd: Avx512,
     p: u64,
     data: &mut [u64],
@@ -916,7 +916,7 @@ pub fn inv_depth_first_avx512(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn inv_breadth_first_avx2(
+pub(crate) fn inv_breadth_first_avx2(
     simd: Avx2,
     p: u64,
     data: &mut [u64],
@@ -1056,7 +1056,7 @@ pub fn inv_breadth_first_avx2(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn inv_depth_first_avx2(
+pub(crate) fn inv_depth_first_avx2(
     simd: Avx2,
     p: u64,
     data: &mut [u64],

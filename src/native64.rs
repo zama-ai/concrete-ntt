@@ -12,20 +12,28 @@ pub(crate) use crate::native32::mul_mod32_avx2;
 #[cfg(feature = "nightly")]
 pub(crate) use crate::native32::{mul_mod32_avx512, mul_mod52_avx512};
 
+/// Negacyclic NTT plan for multiplying two 64bit polynomials.
+#[derive(Clone, Debug)]
 pub struct Plan32(
-    crate::_32::Plan,
-    crate::_32::Plan,
-    crate::_32::Plan,
-    crate::_32::Plan,
-    crate::_32::Plan,
+    crate::prime32::Plan,
+    crate::prime32::Plan,
+    crate::prime32::Plan,
+    crate::prime32::Plan,
+    crate::prime32::Plan,
 );
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[cfg(feature = "nightly")]
+/// Negacyclic NTT plan for multiplying two 64bit polynomials.  
+/// This can be more efficient than [`Plan32`], but requires the AVX512 instruction set.
+#[cfg(any(
+    doc,
+    all(feature = "nightly", any(target_arch = "x86", target_arch = "x86_64"))
+))]
+#[cfg_attr(docsrs, doc(cfg(feature = "nightly")))]
+#[derive(Clone, Debug)]
 pub struct Plan52(
-    crate::_64::Plan,
-    crate::_64::Plan,
-    crate::_64::Plan,
+    crate::prime64::Plan,
+    crate::prime64::Plan,
+    crate::prime64::Plan,
     crate::Avx512,
 );
 
@@ -912,8 +920,10 @@ fn reconstruct_slice_52bit_012_avx512(
 }
 
 impl Plan32 {
+    /// Returns a negacyclic NTT plan for the given polynomial size, or `None` if no
+    /// suitable roots of unity can be found for the wanted parameters.
     pub fn try_new(n: usize) -> Option<Self> {
-        use crate::{primes32::*, _32::Plan};
+        use crate::{prime32::Plan, primes32::*};
         Some(Self(
             Plan::try_new(n, P0)?,
             Plan::try_new(n, P1)?,
@@ -921,6 +931,12 @@ impl Plan32 {
             Plan::try_new(n, P3)?,
             Plan::try_new(n, P4)?,
         ))
+    }
+
+    /// Returns the polynomial size of the negacyclic NTT plan.
+    #[inline]
+    pub fn ntt_size(&self) -> usize {
+        self.0.ntt_size()
     }
 
     pub fn fwd(
@@ -992,6 +1008,8 @@ impl Plan32 {
         }
     }
 
+    /// Computes the negacyclic polynomial product of `lhs` and `rhs`, and stores the result in
+    /// `prod`.
     pub fn negacyclic_polymul(&self, prod: &mut [u64], lhs: &[u64], rhs: &[u64]) {
         let n = prod.len();
         assert_eq!(n, lhs.len());
@@ -1025,8 +1043,11 @@ impl Plan32 {
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 impl Plan52 {
+    /// Returns a negacyclic NTT plan for the given polynomial size, or `None` if no
+    /// suitable roots of unity can be found for the wanted parameters, or if the AVX512
+    /// instruction set isn't detected.
     pub fn try_new(n: usize) -> Option<Self> {
-        use crate::{primes52::*, _64::Plan};
+        use crate::{prime64::Plan, primes52::*};
         let simd = crate::Avx512::try_new()?;
         Some(Self(
             Plan::try_new(n, P0)?,
@@ -1034,6 +1055,12 @@ impl Plan52 {
             Plan::try_new(n, P2)?,
             simd,
         ))
+    }
+
+    /// Returns the polynomial size of the negacyclic NTT plan.
+    #[inline]
+    pub fn ntt_size(&self) -> usize {
+        self.0.ntt_size()
     }
 
     pub fn fwd(&self, value: &[u64], mod_p0: &mut [u64], mod_p1: &mut [u64], mod_p2: &mut [u64]) {
@@ -1069,6 +1096,8 @@ impl Plan52 {
         reconstruct_slice_52bit_012_avx512(self.3, value, mod_p0, mod_p1, mod_p2);
     }
 
+    /// Computes the negacyclic polynomial product of `lhs` and `rhs`, and stores the result in
+    /// `prod`.
     pub fn negacyclic_polymul(&self, prod: &mut [u64], lhs: &[u64], rhs: &[u64]) {
         let n = prod.len();
         assert_eq!(n, lhs.len());

@@ -239,7 +239,7 @@ fn mul_avx512(
     mul_u128_u32(simd, low_bits0, low_bits1, low_bits2, low_bits3, p).4
 }
 
-pub fn fwd_breadth_first_scalar(
+pub(crate) fn fwd_breadth_first_scalar(
     data: &mut [u32],
     p: u32,
     p_div: Div32,
@@ -273,7 +273,7 @@ pub fn fwd_breadth_first_scalar(
     }
 }
 
-pub fn fwd_depth_first_scalar(
+pub(crate) fn fwd_depth_first_scalar(
     data: &mut [u32],
     p: u32,
     p_div: Div32,
@@ -323,7 +323,7 @@ pub fn fwd_depth_first_scalar(
     }
 }
 
-pub fn inv_breadth_first_scalar(
+pub(crate) fn inv_breadth_first_scalar(
     data: &mut [u32],
     p: u32,
     p_div: Div32,
@@ -356,7 +356,7 @@ pub fn inv_breadth_first_scalar(
     }
 }
 
-pub fn inv_depth_first_scalar(
+pub(crate) fn inv_depth_first_scalar(
     data: &mut [u32],
     p: u32,
     p_div: Div32,
@@ -404,7 +404,7 @@ pub fn inv_depth_first_scalar(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn fwd_breadth_first_avx2(
+pub(crate) fn fwd_breadth_first_avx2(
     simd: Avx2,
     data: &mut [u32],
     p: u32,
@@ -510,7 +510,7 @@ pub fn fwd_breadth_first_avx2(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn fwd_depth_first_avx2(
+pub(crate) fn fwd_depth_first_avx2(
     simd: Avx2,
     data: &mut [u32],
     p: u32,
@@ -581,7 +581,7 @@ pub fn fwd_depth_first_avx2(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn inv_breadth_first_avx2(
+pub(crate) fn inv_breadth_first_avx2(
     simd: Avx2,
     data: &mut [u32],
     p: u32,
@@ -743,7 +743,7 @@ pub fn inv_breadth_first_avx2(
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn inv_depth_first_avx2(
+pub(crate) fn inv_depth_first_avx2(
     simd: Avx2,
     data: &mut [u32],
     p: u32,
@@ -834,7 +834,7 @@ pub fn inv_depth_first_avx2(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn fwd_breadth_first_avx512(
+pub(crate) fn fwd_breadth_first_avx512(
     simd: Avx512,
     data: &mut [u32],
     p: u32,
@@ -960,7 +960,7 @@ pub fn fwd_breadth_first_avx512(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn fwd_depth_first_avx512(
+pub(crate) fn fwd_depth_first_avx512(
     simd: Avx512,
     data: &mut [u32],
     p: u32,
@@ -1040,7 +1040,7 @@ pub fn fwd_depth_first_avx512(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn inv_breadth_first_avx512(
+pub(crate) fn inv_breadth_first_avx512(
     simd: Avx512,
     data: &mut [u32],
     p: u32,
@@ -1235,7 +1235,7 @@ pub fn inv_breadth_first_avx512(
 }
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn inv_depth_first_avx512(
+pub(crate) fn inv_depth_first_avx512(
     simd: Avx512,
     data: &mut [u32],
     p: u32,
@@ -1324,15 +1324,15 @@ pub fn inv_depth_first_avx512(
     );
 }
 
-pub fn fwd_scalar(data: &mut [u32], p: u32, p_div: Div32, twid: &[u32]) {
+pub(crate) fn fwd_scalar(data: &mut [u32], p: u32, p_div: Div32, twid: &[u32]) {
     fwd_depth_first_scalar(data, p, p_div, twid, 0, 0);
 }
-pub fn inv_scalar(data: &mut [u32], p: u32, p_div: Div32, inv_twid: &[u32]) {
+pub(crate) fn inv_scalar(data: &mut [u32], p: u32, p_div: Div32, inv_twid: &[u32]) {
     inv_depth_first_scalar(data, p, p_div, inv_twid, 0, 0);
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn fwd_avx2(simd: Avx2, data: &mut [u32], p: u32, p_div: Div32, twid: &[u32]) {
+pub(crate) fn fwd_avx2(simd: Avx2, data: &mut [u32], p: u32, p_div: Div32, twid: &[u32]) {
     let p_div = p_div.double_reciprocal;
     let p_div = (
         p_div as u32,
@@ -1343,7 +1343,7 @@ pub fn fwd_avx2(simd: Avx2, data: &mut [u32], p: u32, p_div: Div32, twid: &[u32]
     fwd_depth_first_avx2(simd, data, p, p_div, twid, 0, 0);
 }
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn inv_avx2(simd: Avx2, data: &mut [u32], p: u32, p_div: Div32, inv_twid: &[u32]) {
+pub(crate) fn inv_avx2(simd: Avx2, data: &mut [u32], p: u32, p_div: Div32, inv_twid: &[u32]) {
     let p_div = p_div.double_reciprocal;
     let p_div = (
         p_div as u32,
@@ -1356,7 +1356,7 @@ pub fn inv_avx2(simd: Avx2, data: &mut [u32], p: u32, p_div: Div32, inv_twid: &[
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn fwd_avx512(simd: Avx512, data: &mut [u32], p: u32, p_div: Div32, twid: &[u32]) {
+pub(crate) fn fwd_avx512(simd: Avx512, data: &mut [u32], p: u32, p_div: Div32, twid: &[u32]) {
     let p_div = p_div.double_reciprocal;
     let p_div = (
         p_div as u32,
@@ -1368,7 +1368,7 @@ pub fn fwd_avx512(simd: Avx512, data: &mut [u32], p: u32, p_div: Div32, twid: &[
 }
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub fn inv_avx512(simd: Avx512, data: &mut [u32], p: u32, p_div: Div32, inv_twid: &[u32]) {
+pub(crate) fn inv_avx512(simd: Avx512, data: &mut [u32], p: u32, p_div: Div32, inv_twid: &[u32]) {
     let p_div = p_div.double_reciprocal;
     let p_div = (
         p_div as u32,
@@ -1382,7 +1382,9 @@ pub fn inv_avx512(simd: Avx512, data: &mut [u32], p: u32, p_div: Div32, inv_twid
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{prime::largest_prime_in_arithmetic_progression64, _32::init_negacyclic_twiddles};
+    use crate::{
+        prime::largest_prime_in_arithmetic_progression64, prime32::init_negacyclic_twiddles,
+    };
     use rand::random;
 
     #[test]

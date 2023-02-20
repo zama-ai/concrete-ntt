@@ -2,11 +2,11 @@ pub(crate) use crate::native64::{mul_mod32, mul_mod64};
 use aligned_vec::avec;
 
 pub struct Plan32(
-    crate::_32::Plan,
-    crate::_32::Plan,
-    crate::_32::Plan,
-    crate::_32::Plan,
-    crate::_32::Plan,
+    crate::prime32::Plan,
+    crate::prime32::Plan,
+    crate::prime32::Plan,
+    crate::prime32::Plan,
+    crate::prime32::Plan,
 );
 
 #[inline(always)]
@@ -63,8 +63,10 @@ fn reconstruct_32bit_01234_v2(
 }
 
 impl Plan32 {
+    /// Returns a negacyclic NTT plan for the given polynomial size, or `None` if no
+    /// suitable roots of unity can be found for the wanted parameters.
     pub fn try_new(n: usize) -> Option<Self> {
-        use crate::{primes32::*, _32::Plan};
+        use crate::{prime32::Plan, primes32::*};
         Some(Self(
             Plan::try_new(n, P0)?,
             Plan::try_new(n, P1)?,
@@ -72,6 +74,12 @@ impl Plan32 {
             Plan::try_new(n, P3)?,
             Plan::try_new(n, P4)?,
         ))
+    }
+
+    /// Returns the polynomial size of the negacyclic NTT plan.
+    #[inline]
+    pub fn ntt_size(&self) -> usize {
+        self.0.ntt_size()
     }
 
     pub fn fwd(
@@ -156,6 +164,8 @@ impl Plan32 {
         }
     }
 
+    /// Computes the negacyclic polynomial product of `lhs` and `rhs`, and stores the result in
+    /// `prod`.
     pub fn negacyclic_polymul(&self, prod: &mut [u128], lhs: &[u128], rhs: &[u128]) {
         let n = prod.len();
         assert_eq!(n, lhs.len());

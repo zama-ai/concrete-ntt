@@ -180,7 +180,7 @@ pub const fn largest_prime_in_arithmetic_progression64(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::_64::Solinas;
+    use crate::prime64::Solinas;
 
     #[test]
     fn test_is_prime() {

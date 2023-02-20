@@ -1,12 +1,12 @@
 use crate::u256;
 
 #[inline(always)]
-pub const fn mul64_u32(lowbits: u64, d: u32) -> u32 {
+pub(crate) const fn mul64_u32(lowbits: u64, d: u32) -> u32 {
     ((lowbits as u128 * d as u128) >> 64) as u32
 }
 
 #[inline(always)]
-pub const fn mul128_u64(lowbits: u128, d: u64) -> u64 {
+pub(crate) const fn mul128_u64(lowbits: u128, d: u64) -> u64 {
     let mut bottom_half = (lowbits & 0xFFFFFFFFFFFFFFFF) * d as u128;
     bottom_half >>= 64;
     let top_half = (lowbits >> 64) * d as u128;
@@ -15,15 +15,16 @@ pub const fn mul128_u64(lowbits: u128, d: u64) -> u64 {
 }
 
 #[inline(always)]
-pub const fn mul256_u128(lowbits: u256, d: u128) -> u128 {
+pub(crate) const fn mul256_u128(lowbits: u256, d: u128) -> u128 {
     lowbits.mul_u256_u128(d).1
 }
 
 #[inline(always)]
-pub const fn mul256_u64(lowbits: u256, d: u64) -> u64 {
+pub(crate) const fn mul256_u64(lowbits: u256, d: u64) -> u64 {
     lowbits.mul_u256_u64(d).1
 }
 
+/// Divisor representing a 32bit denominator.
 #[derive(Copy, Clone, Debug)]
 pub struct Div32 {
     pub double_reciprocal: u128,
@@ -31,6 +32,7 @@ pub struct Div32 {
     pub divisor: u32,
 }
 
+/// Divisor representing a 64bit denominator.
 #[derive(Copy, Clone, Debug)]
 pub struct Div64 {
     pub double_reciprocal: u256,
@@ -39,6 +41,10 @@ pub struct Div64 {
 }
 
 impl Div32 {
+    /// Returns the division structure holding the given divisor.
+    ///
+    /// # Panics
+    /// Panics if the divisor is zero or one.
     pub const fn new(divisor: u32) -> Self {
         assert!(divisor > 1);
         let single_reciprocal = (u64::MAX / divisor as u64) + 1;
@@ -51,28 +57,33 @@ impl Div32 {
         }
     }
 
+    /// Returns the quotient of the division of `n` by `d`.
     #[inline(always)]
     pub const fn div(n: u32, d: Self) -> u32 {
         mul64_u32(d.single_reciprocal, n)
     }
 
+    /// Returns the remainder of the division of `n` by `d`.
     #[inline(always)]
     pub const fn rem(n: u32, d: Self) -> u32 {
         let low_bits = d.single_reciprocal.wrapping_mul(n as u64);
         mul64_u32(low_bits, d.divisor)
     }
 
+    /// Returns the quotient of the division of `n` by `d`.
     #[inline(always)]
     pub const fn div_u64(n: u64, d: Self) -> u64 {
         mul128_u64(d.double_reciprocal, n)
     }
 
+    /// Returns the remainder of the division of `n` by `d`.
     #[inline(always)]
     pub const fn rem_u64(n: u64, d: Self) -> u32 {
         let low_bits = d.double_reciprocal.wrapping_mul(n as u128);
         mul128_u64(low_bits, d.divisor as u64) as u32
     }
 
+    /// Returns the internal divisor as an integer.
     #[inline(always)]
     pub const fn divisor(&self) -> u32 {
         self.divisor
@@ -80,6 +91,10 @@ impl Div32 {
 }
 
 impl Div64 {
+    /// Returns the division structure holding the given divisor.
+    ///
+    /// # Panics
+    /// Panics if the divisor is zero or one.
     pub const fn new(divisor: u64) -> Self {
         assert!(divisor > 1);
         let single_reciprocal = ((u128::MAX) / divisor as u128) + 1;
@@ -101,28 +116,33 @@ impl Div64 {
         }
     }
 
+    /// Returns the quotient of the division of `n` by `d`.
     #[inline(always)]
     pub const fn div(n: u64, d: Self) -> u64 {
         mul128_u64(d.single_reciprocal, n)
     }
 
+    /// Returns the remainder of the division of `n` by `d`.
     #[inline(always)]
     pub const fn rem(n: u64, d: Self) -> u64 {
         let low_bits = d.single_reciprocal.wrapping_mul(n as u128);
         mul128_u64(low_bits, d.divisor)
     }
 
+    /// Returns the quotient of the division of `n` by `d`.
     #[inline(always)]
     pub const fn div_u128(n: u128, d: Self) -> u128 {
         mul256_u128(d.double_reciprocal, n)
     }
 
+    /// Returns the remainder of the division of `n` by `d`.
     #[inline(always)]
     pub const fn rem_u128(n: u128, d: Self) -> u64 {
         let low_bits = d.double_reciprocal.wrapping_mul_u256_u128(n);
         mul256_u64(low_bits, d.divisor)
     }
 
+    /// Returns the internal divisor as an integer.
     #[inline(always)]
     pub const fn divisor(&self) -> u64 {
         self.divisor
