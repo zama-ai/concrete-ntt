@@ -12,6 +12,8 @@ impl<T: Copy + Add<Output = T> + Sub<Output = T> + Mul<Output = T>> Scalar for T
     }
 }
 
+// we can use `+`, `-`, `*` instead of `wrapping_*` because benches are always
+// run in release mode
 fn slice_wrapping_add<T: Scalar>(output: &mut [T], lhs: &[T], rhs: &[T]) {
     output
         .iter_mut()

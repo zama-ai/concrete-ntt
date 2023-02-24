@@ -199,10 +199,11 @@ impl Plan32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::native128::tests::negacyclic_convolution;
+    use alloc::{vec, vec::Vec};
     use rand::random;
 
     extern crate alloc;
-    use alloc::{vec, vec::Vec};
 
     #[test]
     fn reconstruct_32bit() {
@@ -211,18 +212,7 @@ mod tests {
 
             let lhs = (0..n).map(|_| random::<u128>()).collect::<Vec<_>>();
             let rhs = (0..n).map(|_| random::<u128>() % 2).collect::<Vec<_>>();
-            let mut full_convolution = vec![0u128; 2 * n];
-            let mut negacyclic_convolution = vec![0u128; n];
-            for i in 0..n {
-                for j in 0..n {
-                    full_convolution[i + j] =
-                        full_convolution[i + j].wrapping_add(lhs[i].wrapping_mul(rhs[j]));
-                }
-            }
-            for i in 0..n {
-                negacyclic_convolution[i] =
-                    full_convolution[i].wrapping_sub(full_convolution[i + n]);
-            }
+            let negacyclic_convolution = negacyclic_convolution(n, &lhs, &rhs);
 
             let mut prod = vec![0; n];
             plan.negacyclic_polymul(&mut prod, &lhs, &rhs);

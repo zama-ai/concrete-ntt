@@ -1,16 +1,9 @@
 use super::RECURSION_THRESHOLD;
 use crate::fastdiv::Div32;
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use crate::Avx2;
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[cfg(feature = "nightly")]
-use crate::Avx512;
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
-#[cfg(target_arch = "x86_64")]
-use core::arch::x86_64::*;
 use core::iter::zip;
-use pulp::{as_arrays_mut, cast};
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+use pulp::{as_arrays, as_arrays_mut, cast, x86::*};
 
 #[inline(always)]
 fn add(p: u32, a: u32, b: u32) -> u32 {
@@ -39,57 +32,57 @@ fn mul(p: Div32, a: u32, b: u32) -> u32 {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
-fn add_avx2(simd: Avx2, p: __m256i, a: __m256i, b: __m256i) -> __m256i {
-    let neg_b = simd.avx2._mm256_sub_epi32(p, b);
-    let not_a_ge_neg_b = simd._mm256_cmpgt_epu32(neg_b, a);
-    simd.avx2._mm256_blendv_epi8(
-        simd.avx2._mm256_sub_epi32(a, neg_b),
-        simd.avx2._mm256_add_epi32(a, b),
+fn add_avx2(simd: crate::V3, p: u32x8, a: u32x8, b: u32x8) -> u32x8 {
+    let neg_b = simd.wrapping_sub_u32x8(p, b);
+    let not_a_ge_neg_b = simd.cmp_gt_u32x8(neg_b, a);
+    simd.select_u32x8(
         not_a_ge_neg_b,
+        simd.wrapping_add_u32x8(a, b),
+        simd.wrapping_sub_u32x8(a, neg_b),
     )
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
-fn sub_avx2(simd: Avx2, p: __m256i, a: __m256i, b: __m256i) -> __m256i {
-    let neg_b = simd.avx2._mm256_sub_epi32(p, b);
-    let not_a_ge_b = simd._mm256_cmpgt_epu32(b, a);
-    simd.avx2._mm256_blendv_epi8(
-        simd.avx2._mm256_sub_epi32(a, b),
-        simd.avx2._mm256_add_epi32(a, neg_b),
+fn sub_avx2(simd: crate::V3, p: u32x8, a: u32x8, b: u32x8) -> u32x8 {
+    let neg_b = simd.wrapping_sub_u32x8(p, b);
+    let not_a_ge_b = simd.cmp_gt_u32x8(b, a);
+    simd.select_u32x8(
         not_a_ge_b,
+        simd.wrapping_add_u32x8(a, neg_b),
+        simd.wrapping_sub_u32x8(a, b),
     )
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
 fn mul_avx2(
-    simd: Avx2,
-    p: __m256i,
-    p_div0: __m256i,
-    p_div1: __m256i,
-    p_div2: __m256i,
-    p_div3: __m256i,
-    a: __m256i,
-    b: __m256i,
-) -> __m256i {
+    simd: crate::V3,
+    p: u32x8,
+    p_div0: u32x8,
+    p_div1: u32x8,
+    p_div2: u32x8,
+    p_div3: u32x8,
+    a: u32x8,
+    b: u32x8,
+) -> u32x8 {
     #[inline(always)]
-    fn mul_with_carry(simd: Avx2, l: __m256i, r: __m256i, c: __m256i) -> (__m256i, __m256i) {
-        let (lo, hi) = simd._mm256_mul_u32_u32_epu32(l, r);
-        let lo_plus_c = simd.avx2._mm256_add_epi32(lo, c);
-        let overflow = simd._mm256_cmpgt_epu32(lo, lo_plus_c);
-        (lo_plus_c, simd.avx2._mm256_sub_epi32(hi, overflow))
+    fn mul_with_carry(simd: crate::V3, l: u32x8, r: u32x8, c: u32x8) -> (u32x8, u32x8) {
+        let (lo, hi) = simd.widening_mul_u32x8(l, r);
+        let lo_plus_c = simd.wrapping_add_u32x8(lo, c);
+        let overflow = simd.cmp_gt_u32x8(lo, lo_plus_c);
+        (lo_plus_c, simd.wrapping_sub_u32x8(hi, cast(overflow)))
     }
     #[inline(always)]
     fn mul_u128_u32(
-        simd: Avx2,
-        lhs0: __m256i,
-        lhs1: __m256i,
-        lhs2: __m256i,
-        lhs3: __m256i,
-        rhs: __m256i,
-    ) -> (__m256i, __m256i, __m256i, __m256i, __m256i) {
-        let (x0, carry) = simd._mm256_mul_u32_u32_epu32(lhs0, rhs);
+        simd: crate::V3,
+        lhs0: u32x8,
+        lhs1: u32x8,
+        lhs2: u32x8,
+        lhs3: u32x8,
+        rhs: u32x8,
+    ) -> (u32x8, u32x8, u32x8, u32x8, u32x8) {
+        let (x0, carry) = simd.widening_mul_u32x8(lhs0, rhs);
         let (x1, carry) = mul_with_carry(simd, lhs1, rhs, carry);
         let (x2, carry) = mul_with_carry(simd, lhs2, rhs, carry);
         let (x3, carry) = mul_with_carry(simd, lhs3, rhs, carry);
@@ -98,37 +91,35 @@ fn mul_avx2(
 
     #[inline(always)]
     fn wrapping_mul_u128_u64(
-        simd: Avx2,
-        lhs0: __m256i,
-        lhs1: __m256i,
-        lhs2: __m256i,
-        lhs3: __m256i,
-        rhs0: __m256i,
-        rhs1: __m256i,
-    ) -> (__m256i, __m256i, __m256i, __m256i) {
-        let avx2 = simd.avx2;
-
+        simd: crate::V3,
+        lhs0: u32x8,
+        lhs1: u32x8,
+        lhs2: u32x8,
+        lhs3: u32x8,
+        rhs0: u32x8,
+        rhs1: u32x8,
+    ) -> (u32x8, u32x8, u32x8, u32x8) {
         let (x0, x1, x2, x3, _) = mul_u128_u32(simd, lhs0, lhs1, lhs2, lhs3, rhs0);
         let (y0, y1, y2, _, _) = mul_u128_u32(simd, lhs0, lhs1, lhs2, lhs3, rhs1);
 
         let z0 = x0;
 
-        let z1 = avx2._mm256_add_epi32(x1, y0);
-        let carry = simd._mm256_cmpgt_epu32(x1, z1);
+        let z1 = simd.wrapping_add_u32x8(x1, y0);
+        let carry: u32x8 = cast(simd.cmp_gt_u32x8(x1, z1));
 
-        let z2 = avx2._mm256_add_epi32(x2, y1);
-        let o0 = simd._mm256_cmpgt_epu32(x2, z2);
-        let o1 = avx2._mm256_cmpeq_epi32(z2, carry);
-        let z2 = avx2._mm256_sub_epi32(z2, carry);
-        let carry = avx2._mm256_or_si256(o0, o1);
+        let z2 = simd.wrapping_add_u32x8(x2, y1);
+        let o0 = simd.cmp_gt_u32x8(x2, z2);
+        let o1 = simd.cmp_eq_u32x8(z2, carry);
+        let z2 = simd.wrapping_sub_u32x8(z2, carry);
+        let carry: u32x8 = cast(simd.or_m32x8(o0, o1));
 
-        let z3 = avx2._mm256_add_epi32(x3, y2);
-        let z3 = avx2._mm256_sub_epi32(z3, carry);
+        let z3 = simd.wrapping_add_u32x8(x3, y2);
+        let z3 = simd.wrapping_sub_u32x8(z3, carry);
 
         (z0, z1, z2, z3)
     }
 
-    let (lo, hi) = simd._mm256_mul_u32_u32_epu32(a, b);
+    let (lo, hi) = simd.widening_mul_u32x8(a, b);
     let (low_bits0, low_bits1, low_bits2, low_bits3) =
         wrapping_mul_u128_u64(simd, p_div0, p_div1, p_div2, p_div3, lo, hi);
 
@@ -138,28 +129,26 @@ fn mul_avx2(
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 #[inline(always)]
-fn add_avx512(simd: Avx512, p: __m512i, a: __m512i, b: __m512i) -> __m512i {
-    let avx = simd.avx512f;
-    let neg_b = avx._mm512_sub_epi32(p, b);
-    let a_ge_neg_b = avx._mm512_cmpge_epu32_mask(a, neg_b);
-    avx._mm512_mask_blend_epi32(
+fn add_avx512(simd: crate::V4, p: u32x16, a: u32x16, b: u32x16) -> u32x16 {
+    let neg_b = simd.wrapping_sub_u32x16(p, b);
+    let a_ge_neg_b = simd.cmp_ge_u32x16(a, neg_b);
+    simd.select_u32x16(
         a_ge_neg_b,
-        avx._mm512_add_epi32(a, b),
-        avx._mm512_sub_epi32(a, neg_b),
+        simd.wrapping_sub_u32x16(a, neg_b),
+        simd.wrapping_add_u32x16(a, b),
     )
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 #[inline(always)]
-fn sub_avx512(simd: Avx512, p: __m512i, a: __m512i, b: __m512i) -> __m512i {
-    let avx = simd.avx512f;
-    let neg_b = avx._mm512_sub_epi32(p, b);
-    let a_ge_b = avx._mm512_cmpge_epu32_mask(a, b);
-    avx._mm512_mask_blend_epi32(
+fn sub_avx512(simd: crate::V4, p: u32x16, a: u32x16, b: u32x16) -> u32x16 {
+    let neg_b = simd.wrapping_sub_u32x16(p, b);
+    let a_ge_b = simd.cmp_ge_u32x16(a, b);
+    simd.select_u32x16(
         a_ge_b,
-        avx._mm512_add_epi32(a, neg_b),
-        avx._mm512_sub_epi32(a, b),
+        simd.wrapping_sub_u32x16(a, b),
+        simd.wrapping_add_u32x16(a, neg_b),
     )
 }
 
@@ -167,33 +156,32 @@ fn sub_avx512(simd: Avx512, p: __m512i, a: __m512i, b: __m512i) -> __m512i {
 #[cfg(feature = "nightly")]
 #[inline(always)]
 fn mul_avx512(
-    simd: Avx512,
-    p: __m512i,
-    p_div0: __m512i,
-    p_div1: __m512i,
-    p_div2: __m512i,
-    p_div3: __m512i,
-    a: __m512i,
-    b: __m512i,
-) -> __m512i {
+    simd: crate::V4,
+    p: u32x16,
+    p_div0: u32x16,
+    p_div1: u32x16,
+    p_div2: u32x16,
+    p_div3: u32x16,
+    a: u32x16,
+    b: u32x16,
+) -> u32x16 {
     #[inline(always)]
-    fn mul_with_carry(simd: Avx512, l: __m512i, r: __m512i, c: __m512i) -> (__m512i, __m512i) {
-        let avx = simd.avx512f;
-        let (lo, hi) = simd._mm512_mul_u32_u32_epu32(l, r);
-        let lo_plus_c = avx._mm512_add_epi32(lo, c);
-        let overflow = simd._mm512_movm_epi32(avx._mm512_cmpgt_epu32_mask(lo, lo_plus_c));
-        (lo_plus_c, avx._mm512_sub_epi32(hi, overflow))
+    fn mul_with_carry(simd: crate::V4, l: u32x16, r: u32x16, c: u32x16) -> (u32x16, u32x16) {
+        let (lo, hi) = simd.widening_mul_u32x16(l, r);
+        let lo_plus_c = simd.wrapping_add_u32x16(lo, c);
+        let overflow = simd.convert_mask_b16_to_u32x16(simd.cmp_gt_u32x16(lo, lo_plus_c));
+        (lo_plus_c, simd.wrapping_sub_u32x16(hi, overflow))
     }
     #[inline(always)]
     fn mul_u128_u32(
-        simd: Avx512,
-        lhs0: __m512i,
-        lhs1: __m512i,
-        lhs2: __m512i,
-        lhs3: __m512i,
-        rhs: __m512i,
-    ) -> (__m512i, __m512i, __m512i, __m512i, __m512i) {
-        let (x0, carry) = simd._mm512_mul_u32_u32_epu32(lhs0, rhs);
+        simd: crate::V4,
+        lhs0: u32x16,
+        lhs1: u32x16,
+        lhs2: u32x16,
+        lhs3: u32x16,
+        rhs: u32x16,
+    ) -> (u32x16, u32x16, u32x16, u32x16, u32x16) {
+        let (x0, carry) = simd.widening_mul_u32x16(lhs0, rhs);
         let (x1, carry) = mul_with_carry(simd, lhs1, rhs, carry);
         let (x2, carry) = mul_with_carry(simd, lhs2, rhs, carry);
         let (x3, carry) = mul_with_carry(simd, lhs3, rhs, carry);
@@ -202,37 +190,35 @@ fn mul_avx512(
 
     #[inline(always)]
     fn wrapping_mul_u128_u64(
-        simd: Avx512,
-        lhs0: __m512i,
-        lhs1: __m512i,
-        lhs2: __m512i,
-        lhs3: __m512i,
-        rhs0: __m512i,
-        rhs1: __m512i,
-    ) -> (__m512i, __m512i, __m512i, __m512i) {
-        let avx = simd.avx512f;
-
+        simd: crate::V4,
+        lhs0: u32x16,
+        lhs1: u32x16,
+        lhs2: u32x16,
+        lhs3: u32x16,
+        rhs0: u32x16,
+        rhs1: u32x16,
+    ) -> (u32x16, u32x16, u32x16, u32x16) {
         let (x0, x1, x2, x3, _) = mul_u128_u32(simd, lhs0, lhs1, lhs2, lhs3, rhs0);
         let (y0, y1, y2, _, _) = mul_u128_u32(simd, lhs0, lhs1, lhs2, lhs3, rhs1);
 
         let z0 = x0;
 
-        let z1 = avx._mm512_add_epi32(x1, y0);
-        let carry = simd._mm512_movm_epi32(avx._mm512_cmpgt_epu32_mask(x1, z1));
+        let z1 = simd.wrapping_add_u32x16(x1, y0);
+        let carry = simd.convert_mask_b16_to_u32x16(simd.cmp_gt_u32x16(x1, z1));
 
-        let z2 = avx._mm512_add_epi32(x2, y1);
-        let o0 = avx._mm512_cmpgt_epu32_mask(x2, z2);
-        let o1 = avx._mm512_cmpeq_epi32_mask(z2, carry);
-        let z2 = avx._mm512_sub_epi32(z2, carry);
-        let carry = simd._mm512_movm_epi32(o0 | o1);
+        let z2 = simd.wrapping_add_u32x16(x2, y1);
+        let o0 = simd.cmp_gt_u32x16(x2, z2);
+        let o1 = simd.cmp_eq_u32x16(z2, carry);
+        let z2 = simd.wrapping_sub_u32x16(z2, carry);
+        let carry = simd.convert_mask_b16_to_u32x16(b16(o0.0 | o1.0));
 
-        let z3 = avx._mm512_add_epi32(x3, y2);
-        let z3 = avx._mm512_sub_epi32(z3, carry);
+        let z3 = simd.wrapping_add_u32x16(x3, y2);
+        let z3 = simd.wrapping_sub_u32x16(z3, carry);
 
         (z0, z1, z2, z3)
     }
 
-    let (lo, hi) = simd._mm512_mul_u32_u32_epu32(a, b);
+    let (lo, hi) = simd.widening_mul_u32x16(a, b);
     let (low_bits0, low_bits1, low_bits2, low_bits3) =
         wrapping_mul_u128_u64(simd, p_div0, p_div1, p_div2, p_div3, lo, hi);
 
@@ -405,7 +391,7 @@ pub(crate) fn inv_depth_first_scalar(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub(crate) fn fwd_breadth_first_avx2(
-    simd: Avx2,
+    simd: crate::V3,
     data: &mut [u32],
     p: u32,
     p_div: (u32, u32, u32, u32),
@@ -413,22 +399,40 @@ pub(crate) fn fwd_breadth_first_avx2(
     recursion_depth: usize,
     recursion_half: usize,
 ) {
-    use pulp::as_arrays;
+    struct Impl<'a> {
+        simd: crate::V3,
+        data: &'a mut [u32],
+        p: u32,
+        p_div: (u32, u32, u32, u32),
+        twid: &'a [u32],
+        recursion_depth: usize,
+        recursion_half: usize,
+    }
+    impl pulp::NullaryFnOnce for Impl<'_> {
+        type Output = ();
 
-    simd.vectorize(
         #[inline(always)]
-        || {
+        fn call(self) -> Self::Output {
+            let Self {
+                simd,
+                data,
+                p,
+                p_div,
+                twid,
+                recursion_depth,
+                recursion_half,
+            } = self;
             let n = data.len();
             debug_assert!(n.is_power_of_two());
 
             let mut t = n / 2;
             let mut m = 1;
             let mut w_idx = (m << recursion_depth) + recursion_half * m;
-            let p = simd.avx._mm256_set1_epi32(p as i32);
-            let p_div0 = simd.avx._mm256_set1_epi32(p_div.0 as i32);
-            let p_div1 = simd.avx._mm256_set1_epi32(p_div.1 as i32);
-            let p_div2 = simd.avx._mm256_set1_epi32(p_div.2 as i32);
-            let p_div3 = simd.avx._mm256_set1_epi32(p_div.3 as i32);
+            let p = simd.splat_u32x8(p);
+            let p_div0 = simd.splat_u32x8(p_div.0);
+            let p_div1 = simd.splat_u32x8(p_div.1);
+            let p_div2 = simd.splat_u32x8(p_div.2);
+            let p_div3 = simd.splat_u32x8(p_div.3);
 
             while m < n / 8 {
                 let w = &twid[w_idx..];
@@ -437,15 +441,15 @@ pub(crate) fn fwd_breadth_first_avx2(
                     let (z0, z1) = data.split_at_mut(t);
                     let z0 = as_arrays_mut::<8, _>(z0).0;
                     let z1 = as_arrays_mut::<8, _>(z1).0;
-                    let w1 = simd.avx._mm256_set1_epi32(w1 as _);
+                    let w1 = simd.splat_u32x8(w1);
 
-                    for (__z0, __z1) in zip(z0, z1) {
-                        let mut z0 = cast(*__z0);
-                        let mut z1 = cast(*__z1);
+                    for (z0_, z1_) in zip(z0, z1) {
+                        let mut z0 = cast(*z0_);
+                        let mut z1 = cast(*z1_);
                         let z1w = mul_avx2(simd, p, p_div0, p_div1, p_div2, p_div3, z1, w1);
                         (z0, z1) = (add_avx2(simd, p, z0, z1w), sub_avx2(simd, p, z0, z1w));
-                        *__z0 = cast(z0);
-                        *__z1 = cast(z1);
+                        *z0_ = cast(z0);
+                        *z1_ = cast(z1);
                     }
                 }
 
@@ -462,11 +466,11 @@ pub(crate) fn fwd_breadth_first_avx2(
                 let data = as_arrays_mut::<2, _>(data).0;
 
                 for (z0z0z0z0z1z1z1z1, w1) in zip(data, w) {
-                    let w1 = simd.permute4_epu32(*w1);
-                    let [mut z0, mut z1] = simd.interleave4_epu32(cast(*z0z0z0z0z1z1z1z1));
+                    let w1 = simd.permute4_u32x8(*w1);
+                    let [mut z0, mut z1] = simd.interleave4_u32x8(cast(*z0z0z0z0z1z1z1z1));
                     let z1w = mul_avx2(simd, p, p_div0, p_div1, p_div2, p_div3, z1, w1);
                     (z0, z1) = (add_avx2(simd, p, z0, z1w), sub_avx2(simd, p, z0, z1w));
-                    *z0z0z0z0z1z1z1z1 = cast(simd.interleave4_epu32([z0, z1]));
+                    *z0z0z0z0z1z1z1z1 = cast(simd.interleave4_u32x8([z0, z1]));
                 }
 
                 w_idx *= 2;
@@ -480,11 +484,11 @@ pub(crate) fn fwd_breadth_first_avx2(
                 let data = as_arrays_mut::<2, _>(data).0;
 
                 for (z0z0z1z1, w1) in zip(data, w) {
-                    let w1 = simd.permute2_epu32(*w1);
-                    let [mut z0, mut z1] = simd.interleave2_epu32(cast(*z0z0z1z1));
+                    let w1 = simd.permute2_u32x8(*w1);
+                    let [mut z0, mut z1] = simd.interleave2_u32x8(cast(*z0z0z1z1));
                     let z1w = mul_avx2(simd, p, p_div0, p_div1, p_div2, p_div3, z1, w1);
                     (z0, z1) = (add_avx2(simd, p, z0, z1w), sub_avx2(simd, p, z0, z1w));
-                    *z0z0z1z1 = cast(simd.interleave2_epu32([z0, z1]));
+                    *z0z0z1z1 = cast(simd.interleave2_u32x8([z0, z1]));
                 }
 
                 w_idx *= 2;
@@ -498,20 +502,30 @@ pub(crate) fn fwd_breadth_first_avx2(
                 let data = as_arrays_mut::<2, _>(data).0;
 
                 for (z0z1, w1) in zip(data, w) {
-                    let w1 = simd.permute1_epu32(*w1);
-                    let [mut z0, mut z1] = simd.interleave1_epu32(cast(*z0z1));
+                    let w1 = simd.permute1_u32x8(*w1);
+                    let [mut z0, mut z1] = simd.interleave1_u32x8(cast(*z0z1));
                     let z1w = mul_avx2(simd, p, p_div0, p_div1, p_div2, p_div3, z1, w1);
                     (z0, z1) = (add_avx2(simd, p, z0, z1w), sub_avx2(simd, p, z0, z1w));
-                    *z0z1 = cast(simd.interleave1_epu32([z0, z1]));
+                    *z0z1 = cast(simd.interleave1_u32x8([z0, z1]));
                 }
             }
-        },
-    );
+        }
+    }
+
+    simd.vectorize(Impl {
+        simd,
+        data,
+        p,
+        p_div,
+        twid,
+        recursion_depth,
+        recursion_half,
+    });
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub(crate) fn fwd_depth_first_avx2(
-    simd: Avx2,
+    simd: crate::V3,
     data: &mut [u32],
     p: u32,
     p_div: (u32, u32, u32, u32),
@@ -519,9 +533,30 @@ pub(crate) fn fwd_depth_first_avx2(
     recursion_depth: usize,
     recursion_half: usize,
 ) {
-    simd.vectorize(
+    struct Impl<'a> {
+        simd: crate::V3,
+        data: &'a mut [u32],
+        p: u32,
+        p_div: (u32, u32, u32, u32),
+        twid: &'a [u32],
+        recursion_depth: usize,
+        recursion_half: usize,
+    }
+    impl pulp::NullaryFnOnce for Impl<'_> {
+        type Output = ();
+
         #[inline(always)]
-        || {
+        fn call(self) -> Self::Output {
+            let Self {
+                simd,
+                data,
+                p,
+                p_div,
+                twid,
+                recursion_depth,
+                recursion_half,
+            } = self;
+
             let n = data.len();
             debug_assert!(n.is_power_of_two());
 
@@ -533,25 +568,25 @@ pub(crate) fn fwd_depth_first_avx2(
                     let m = 1;
                     let w_idx = (m << recursion_depth) + m * recursion_half;
                     let w = &twid[w_idx..];
-                    let p = simd.avx._mm256_set1_epi32(p as i32);
-                    let p_div0 = simd.avx._mm256_set1_epi32(p_div.0 as i32);
-                    let p_div1 = simd.avx._mm256_set1_epi32(p_div.1 as i32);
-                    let p_div2 = simd.avx._mm256_set1_epi32(p_div.2 as i32);
-                    let p_div3 = simd.avx._mm256_set1_epi32(p_div.3 as i32);
+                    let p = simd.splat_u32x8(p);
+                    let p_div0 = simd.splat_u32x8(p_div.0);
+                    let p_div1 = simd.splat_u32x8(p_div.1);
+                    let p_div2 = simd.splat_u32x8(p_div.2);
+                    let p_div3 = simd.splat_u32x8(p_div.3);
 
                     for (data, &w1) in zip(data.chunks_exact_mut(2 * t), w) {
                         let (z0, z1) = data.split_at_mut(t);
                         let z0 = as_arrays_mut::<8, _>(z0).0;
                         let z1 = as_arrays_mut::<8, _>(z1).0;
-                        let w1 = simd.avx._mm256_set1_epi32(w1 as _);
+                        let w1 = simd.splat_u32x8(w1);
 
-                        for (__z0, __z1) in zip(z0, z1) {
-                            let mut z0 = cast(*__z0);
-                            let mut z1 = cast(*__z1);
+                        for (z0_, z1_) in zip(z0, z1) {
+                            let mut z0 = cast(*z0_);
+                            let mut z1 = cast(*z1_);
                             let z1w = mul_avx2(simd, p, p_div0, p_div1, p_div2, p_div3, z1, w1);
                             (z0, z1) = (add_avx2(simd, p, z0, z1w), sub_avx2(simd, p, z0, z1w));
-                            *__z0 = cast(z0);
-                            *__z1 = cast(z1);
+                            *z0_ = cast(z0);
+                            *z1_ = cast(z1);
                         }
                     }
                 }
@@ -576,13 +611,23 @@ pub(crate) fn fwd_depth_first_avx2(
                     recursion_half * 2 + 1,
                 );
             }
-        },
-    );
+        }
+    }
+
+    simd.vectorize(Impl {
+        simd,
+        data,
+        p,
+        p_div,
+        twid,
+        recursion_depth,
+        recursion_half,
+    });
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub(crate) fn inv_breadth_first_avx2(
-    simd: Avx2,
+    simd: crate::V3,
     data: &mut [u32],
     p: u32,
     p_div: (u32, u32, u32, u32),
@@ -590,22 +635,40 @@ pub(crate) fn inv_breadth_first_avx2(
     recursion_depth: usize,
     recursion_half: usize,
 ) {
-    use pulp::as_arrays;
+    struct Impl<'a> {
+        simd: crate::V3,
+        data: &'a mut [u32],
+        p: u32,
+        p_div: (u32, u32, u32, u32),
+        inv_twid: &'a [u32],
+        recursion_depth: usize,
+        recursion_half: usize,
+    }
+    impl pulp::NullaryFnOnce for Impl<'_> {
+        type Output = ();
 
-    simd.vectorize(
         #[inline(always)]
-        || {
+        fn call(self) -> Self::Output {
+            let Self {
+                simd,
+                data,
+                p,
+                p_div,
+                inv_twid,
+                recursion_depth,
+                recursion_half,
+            } = self;
             let n = data.len();
             debug_assert!(n.is_power_of_two());
 
             let mut t = 1;
             let mut m = n;
             let mut w_idx = (m << recursion_depth) + recursion_half * m;
-            let p = simd.avx._mm256_set1_epi32(p as i32);
-            let p_div0 = simd.avx._mm256_set1_epi32(p_div.0 as i32);
-            let p_div1 = simd.avx._mm256_set1_epi32(p_div.1 as i32);
-            let p_div2 = simd.avx._mm256_set1_epi32(p_div.2 as i32);
-            let p_div3 = simd.avx._mm256_set1_epi32(p_div.3 as i32);
+            let p = simd.splat_u32x8(p);
+            let p_div0 = simd.splat_u32x8(p_div.0);
+            let p_div1 = simd.splat_u32x8(p_div.1);
+            let p_div2 = simd.splat_u32x8(p_div.2);
+            let p_div3 = simd.splat_u32x8(p_div.3);
 
             // m = n / 2
             // t = 1
@@ -618,8 +681,8 @@ pub(crate) fn inv_breadth_first_avx2(
                 let data = as_arrays_mut::<2, _>(data).0;
 
                 for (z0z1, w1) in zip(data, w) {
-                    let w1 = simd.permute1_epu32(*w1);
-                    let [mut z0, mut z1] = simd.interleave1_epu32(cast(*z0z1));
+                    let w1 = simd.permute1_u32x8(*w1);
+                    let [mut z0, mut z1] = simd.interleave1_u32x8(cast(*z0z1));
                     (z0, z1) = (
                         add_avx2(simd, p, z0, z1),
                         mul_avx2(
@@ -633,7 +696,7 @@ pub(crate) fn inv_breadth_first_avx2(
                             w1,
                         ),
                     );
-                    *z0z1 = cast(simd.interleave1_epu32([z0, z1]));
+                    *z0z1 = cast(simd.interleave1_u32x8([z0, z1]));
                 }
 
                 t *= 2;
@@ -650,8 +713,8 @@ pub(crate) fn inv_breadth_first_avx2(
                 let data = as_arrays_mut::<2, _>(data).0;
 
                 for (z0z0z1z1, w1) in zip(data, w) {
-                    let w1 = simd.permute2_epu32(*w1);
-                    let [mut z0, mut z1] = simd.interleave2_epu32(cast(*z0z0z1z1));
+                    let w1 = simd.permute2_u32x8(*w1);
+                    let [mut z0, mut z1] = simd.interleave2_u32x8(cast(*z0z0z1z1));
                     (z0, z1) = (
                         add_avx2(simd, p, z0, z1),
                         mul_avx2(
@@ -665,7 +728,7 @@ pub(crate) fn inv_breadth_first_avx2(
                             w1,
                         ),
                     );
-                    *z0z0z1z1 = cast(simd.interleave2_epu32([z0, z1]));
+                    *z0z0z1z1 = cast(simd.interleave2_u32x8([z0, z1]));
                 }
 
                 t *= 2;
@@ -682,8 +745,8 @@ pub(crate) fn inv_breadth_first_avx2(
                 let data = as_arrays_mut::<2, _>(data).0;
 
                 for (z0z0z0z0z1z1z1z1, w1) in zip(data, w) {
-                    let w1 = simd.permute4_epu32(*w1);
-                    let [mut z0, mut z1] = simd.interleave4_epu32(cast(*z0z0z0z0z1z1z1z1));
+                    let w1 = simd.permute4_u32x8(*w1);
+                    let [mut z0, mut z1] = simd.interleave4_u32x8(cast(*z0z0z0z0z1z1z1z1));
                     (z0, z1) = (
                         add_avx2(simd, p, z0, z1),
                         mul_avx2(
@@ -697,7 +760,7 @@ pub(crate) fn inv_breadth_first_avx2(
                             w1,
                         ),
                     );
-                    *z0z0z0z0z1z1z1z1 = cast(simd.interleave4_epu32([z0, z1]));
+                    *z0z0z0z0z1z1z1z1 = cast(simd.interleave4_u32x8([z0, z1]));
                 }
 
                 t *= 2;
@@ -713,11 +776,11 @@ pub(crate) fn inv_breadth_first_avx2(
                     let (z0, z1) = data.split_at_mut(t);
                     let z0 = as_arrays_mut::<8, _>(z0).0;
                     let z1 = as_arrays_mut::<8, _>(z1).0;
-                    let w1 = simd.avx._mm256_set1_epi32(w1 as _);
+                    let w1 = simd.splat_u32x8(w1);
 
-                    for (__z0, __z1) in zip(z0, z1) {
-                        let mut z0 = cast(*__z0);
-                        let mut z1 = cast(*__z1);
+                    for (z0_, z1_) in zip(z0, z1) {
+                        let mut z0 = cast(*z0_);
+                        let mut z1 = cast(*z1_);
                         (z0, z1) = (
                             add_avx2(simd, p, z0, z1),
                             mul_avx2(
@@ -731,20 +794,30 @@ pub(crate) fn inv_breadth_first_avx2(
                                 w1,
                             ),
                         );
-                        *__z0 = cast(z0);
-                        *__z1 = cast(z1);
+                        *z0_ = cast(z0);
+                        *z1_ = cast(z1);
                     }
                 }
 
                 t *= 2;
             }
-        },
-    );
+        }
+    }
+
+    simd.vectorize(Impl {
+        simd,
+        data,
+        p,
+        p_div,
+        inv_twid,
+        recursion_depth,
+        recursion_half,
+    });
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub(crate) fn inv_depth_first_avx2(
-    simd: Avx2,
+    simd: crate::V3,
     data: &mut [u32],
     p: u32,
     p_div: (u32, u32, u32, u32),
@@ -752,9 +825,30 @@ pub(crate) fn inv_depth_first_avx2(
     recursion_depth: usize,
     recursion_half: usize,
 ) {
-    simd.vectorize(
+    struct Impl<'a> {
+        simd: crate::V3,
+        data: &'a mut [u32],
+        p: u32,
+        p_div: (u32, u32, u32, u32),
+        inv_twid: &'a [u32],
+        recursion_depth: usize,
+        recursion_half: usize,
+    }
+    impl pulp::NullaryFnOnce for Impl<'_> {
+        type Output = ();
+
         #[inline(always)]
-        || {
+        fn call(self) -> Self::Output {
+            let Self {
+                simd,
+                data,
+                p,
+                p_div,
+                inv_twid,
+                recursion_depth,
+                recursion_half,
+            } = self;
+
             let n = data.len();
             debug_assert!(n.is_power_of_two());
 
@@ -794,21 +888,21 @@ pub(crate) fn inv_depth_first_avx2(
                     let m = 1;
                     let w_idx = (m << recursion_depth) + m * recursion_half;
                     let w = &inv_twid[w_idx..];
-                    let p = simd.avx._mm256_set1_epi32(p as i32);
-                    let p_div0 = simd.avx._mm256_set1_epi32(p_div.0 as i32);
-                    let p_div1 = simd.avx._mm256_set1_epi32(p_div.1 as i32);
-                    let p_div2 = simd.avx._mm256_set1_epi32(p_div.2 as i32);
-                    let p_div3 = simd.avx._mm256_set1_epi32(p_div.3 as i32);
+                    let p = simd.splat_u32x8(p);
+                    let p_div0 = simd.splat_u32x8(p_div.0);
+                    let p_div1 = simd.splat_u32x8(p_div.1);
+                    let p_div2 = simd.splat_u32x8(p_div.2);
+                    let p_div3 = simd.splat_u32x8(p_div.3);
 
                     for (data, &w1) in zip(data.chunks_exact_mut(2 * t), w) {
                         let (z0, z1) = data.split_at_mut(t);
                         let z0 = as_arrays_mut::<8, _>(z0).0;
                         let z1 = as_arrays_mut::<8, _>(z1).0;
-                        let w1 = simd.avx._mm256_set1_epi32(w1 as _);
+                        let w1 = simd.splat_u32x8(w1);
 
-                        for (__z0, __z1) in zip(z0, z1) {
-                            let mut z0 = cast(*__z0);
-                            let mut z1 = cast(*__z1);
+                        for (z0_, z1_) in zip(z0, z1) {
+                            let mut z0 = cast(*z0_);
+                            let mut z1 = cast(*z1_);
                             (z0, z1) = (
                                 add_avx2(simd, p, z0, z1),
                                 mul_avx2(
@@ -822,20 +916,30 @@ pub(crate) fn inv_depth_first_avx2(
                                     w1,
                                 ),
                             );
-                            *__z0 = cast(z0);
-                            *__z1 = cast(z1);
+                            *z0_ = cast(z0);
+                            *z1_ = cast(z1);
                         }
                     }
                 }
             }
-        },
-    );
+        }
+    }
+
+    simd.vectorize(Impl {
+        simd,
+        data,
+        p,
+        p_div,
+        inv_twid,
+        recursion_depth,
+        recursion_half,
+    });
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 pub(crate) fn fwd_breadth_first_avx512(
-    simd: Avx512,
+    simd: crate::V4,
     data: &mut [u32],
     p: u32,
     p_div: (u32, u32, u32, u32),
@@ -843,22 +947,40 @@ pub(crate) fn fwd_breadth_first_avx512(
     recursion_depth: usize,
     recursion_half: usize,
 ) {
-    use pulp::as_arrays;
+    struct Impl<'a> {
+        simd: crate::V4,
+        data: &'a mut [u32],
+        p: u32,
+        p_div: (u32, u32, u32, u32),
+        twid: &'a [u32],
+        recursion_depth: usize,
+        recursion_half: usize,
+    }
+    impl pulp::NullaryFnOnce for Impl<'_> {
+        type Output = ();
 
-    simd.vectorize(
         #[inline(always)]
-        || {
+        fn call(self) -> Self::Output {
+            let Self {
+                simd,
+                data,
+                p,
+                p_div,
+                twid,
+                recursion_depth,
+                recursion_half,
+            } = self;
             let n = data.len();
             debug_assert!(n.is_power_of_two());
 
             let mut t = n / 2;
             let mut m = 1;
             let mut w_idx = (m << recursion_depth) + recursion_half * m;
-            let p = simd.avx512f._mm512_set1_epi32(p as i32);
-            let p_div0 = simd.avx512f._mm512_set1_epi32(p_div.0 as i32);
-            let p_div1 = simd.avx512f._mm512_set1_epi32(p_div.1 as i32);
-            let p_div2 = simd.avx512f._mm512_set1_epi32(p_div.2 as i32);
-            let p_div3 = simd.avx512f._mm512_set1_epi32(p_div.3 as i32);
+            let p = simd.splat_u32x16(p);
+            let p_div0 = simd.splat_u32x16(p_div.0);
+            let p_div1 = simd.splat_u32x16(p_div.1);
+            let p_div2 = simd.splat_u32x16(p_div.2);
+            let p_div3 = simd.splat_u32x16(p_div.3);
 
             while m < n / 16 {
                 let w = &twid[w_idx..];
@@ -867,15 +989,15 @@ pub(crate) fn fwd_breadth_first_avx512(
                     let (z0, z1) = data.split_at_mut(t);
                     let z0 = as_arrays_mut::<16, _>(z0).0;
                     let z1 = as_arrays_mut::<16, _>(z1).0;
-                    let w1 = simd.avx512f._mm512_set1_epi32(w1 as _);
+                    let w1 = simd.splat_u32x16(w1);
 
-                    for (__z0, __z1) in zip(z0, z1) {
-                        let mut z0 = cast(*__z0);
-                        let mut z1 = cast(*__z1);
+                    for (z0_, z1_) in zip(z0, z1) {
+                        let mut z0 = cast(*z0_);
+                        let mut z1 = cast(*z1_);
                         let z1w = mul_avx512(simd, p, p_div0, p_div1, p_div2, p_div3, z1, w1);
                         (z0, z1) = (add_avx512(simd, p, z0, z1w), sub_avx512(simd, p, z0, z1w));
-                        *__z0 = cast(z0);
-                        *__z1 = cast(z1);
+                        *z0_ = cast(z0);
+                        *z1_ = cast(z1);
                     }
                 }
 
@@ -892,12 +1014,12 @@ pub(crate) fn fwd_breadth_first_avx512(
                 let data = as_arrays_mut::<2, _>(data).0;
 
                 for (z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1, w1) in zip(data, w) {
-                    let w1 = simd.permute8_epu32(*w1);
+                    let w1 = simd.permute8_u32x16(*w1);
                     let [mut z0, mut z1] =
-                        simd.interleave8_epu32(cast(*z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1));
+                        simd.interleave8_u32x16(cast(*z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1));
                     let z1w = mul_avx512(simd, p, p_div0, p_div1, p_div2, p_div3, z1, w1);
                     (z0, z1) = (add_avx512(simd, p, z0, z1w), sub_avx512(simd, p, z0, z1w));
-                    *z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1 = cast(simd.interleave8_epu32([z0, z1]));
+                    *z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1 = cast(simd.interleave8_u32x16([z0, z1]));
                 }
 
                 w_idx *= 2;
@@ -911,11 +1033,11 @@ pub(crate) fn fwd_breadth_first_avx512(
                 let data = as_arrays_mut::<2, _>(data).0;
 
                 for (z0z0z0z0z1z1z1z1, w1) in zip(data, w) {
-                    let w1 = simd.permute4_epu32(*w1);
-                    let [mut z0, mut z1] = simd.interleave4_epu32(cast(*z0z0z0z0z1z1z1z1));
+                    let w1 = simd.permute4_u32x16(*w1);
+                    let [mut z0, mut z1] = simd.interleave4_u32x16(cast(*z0z0z0z0z1z1z1z1));
                     let z1w = mul_avx512(simd, p, p_div0, p_div1, p_div2, p_div3, z1, w1);
                     (z0, z1) = (add_avx512(simd, p, z0, z1w), sub_avx512(simd, p, z0, z1w));
-                    *z0z0z0z0z1z1z1z1 = cast(simd.interleave4_epu32([z0, z1]));
+                    *z0z0z0z0z1z1z1z1 = cast(simd.interleave4_u32x16([z0, z1]));
                 }
 
                 w_idx *= 2;
@@ -929,11 +1051,11 @@ pub(crate) fn fwd_breadth_first_avx512(
                 let data = as_arrays_mut::<2, _>(data).0;
 
                 for (z0z0z1z1, w1) in zip(data, w) {
-                    let w1 = simd.permute2_epu32(*w1);
-                    let [mut z0, mut z1] = simd.interleave2_epu32(cast(*z0z0z1z1));
+                    let w1 = simd.permute2_u32x16(*w1);
+                    let [mut z0, mut z1] = simd.interleave2_u32x16(cast(*z0z0z1z1));
                     let z1w = mul_avx512(simd, p, p_div0, p_div1, p_div2, p_div3, z1, w1);
                     (z0, z1) = (add_avx512(simd, p, z0, z1w), sub_avx512(simd, p, z0, z1w));
-                    *z0z0z1z1 = cast(simd.interleave2_epu32([z0, z1]));
+                    *z0z0z1z1 = cast(simd.interleave2_u32x16([z0, z1]));
                 }
 
                 w_idx *= 2;
@@ -947,21 +1069,30 @@ pub(crate) fn fwd_breadth_first_avx512(
                 let data = as_arrays_mut::<2, _>(data).0;
 
                 for (z0z1, w1) in zip(data, w) {
-                    let w1 = simd.permute1_epu32(*w1);
-                    let [mut z0, mut z1] = simd.interleave1_epu32(cast(*z0z1));
+                    let w1 = simd.permute1_u32x16(*w1);
+                    let [mut z0, mut z1] = simd.interleave1_u32x16(cast(*z0z1));
                     let z1w = mul_avx512(simd, p, p_div0, p_div1, p_div2, p_div3, z1, w1);
                     (z0, z1) = (add_avx512(simd, p, z0, z1w), sub_avx512(simd, p, z0, z1w));
-                    *z0z1 = cast(simd.interleave1_epu32([z0, z1]));
+                    *z0z1 = cast(simd.interleave1_u32x16([z0, z1]));
                 }
             }
-        },
-    );
+        }
+    }
+    simd.vectorize(Impl {
+        simd,
+        data,
+        p,
+        p_div,
+        twid,
+        recursion_depth,
+        recursion_half,
+    });
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 pub(crate) fn fwd_depth_first_avx512(
-    simd: Avx512,
+    simd: crate::V4,
     data: &mut [u32],
     p: u32,
     p_div: (u32, u32, u32, u32),
@@ -969,9 +1100,30 @@ pub(crate) fn fwd_depth_first_avx512(
     recursion_depth: usize,
     recursion_half: usize,
 ) {
-    simd.vectorize(
+    struct Impl<'a> {
+        simd: crate::V4,
+        data: &'a mut [u32],
+        p: u32,
+        p_div: (u32, u32, u32, u32),
+        twid: &'a [u32],
+        recursion_depth: usize,
+        recursion_half: usize,
+    }
+    impl pulp::NullaryFnOnce for Impl<'_> {
+        type Output = ();
+
         #[inline(always)]
-        || {
+        fn call(self) -> Self::Output {
+            let Self {
+                simd,
+                data,
+                p,
+                p_div,
+                twid,
+                recursion_depth,
+                recursion_half,
+            } = self;
+
             let n = data.len();
             debug_assert!(n.is_power_of_two());
 
@@ -991,25 +1143,25 @@ pub(crate) fn fwd_depth_first_avx512(
                     let m = 1;
                     let w_idx = (m << recursion_depth) + m * recursion_half;
                     let w = &twid[w_idx..];
-                    let p = simd.avx512f._mm512_set1_epi32(p as i32);
-                    let p_div0 = simd.avx512f._mm512_set1_epi32(p_div.0 as i32);
-                    let p_div1 = simd.avx512f._mm512_set1_epi32(p_div.1 as i32);
-                    let p_div2 = simd.avx512f._mm512_set1_epi32(p_div.2 as i32);
-                    let p_div3 = simd.avx512f._mm512_set1_epi32(p_div.3 as i32);
+                    let p = simd.splat_u32x16(p);
+                    let p_div0 = simd.splat_u32x16(p_div.0);
+                    let p_div1 = simd.splat_u32x16(p_div.1);
+                    let p_div2 = simd.splat_u32x16(p_div.2);
+                    let p_div3 = simd.splat_u32x16(p_div.3);
 
                     for (data, &w1) in zip(data.chunks_exact_mut(2 * t), w) {
                         let (z0, z1) = data.split_at_mut(t);
                         let z0 = as_arrays_mut::<16, _>(z0).0;
                         let z1 = as_arrays_mut::<16, _>(z1).0;
-                        let w1 = simd.avx512f._mm512_set1_epi32(w1 as _);
+                        let w1 = simd.splat_u32x16(w1);
 
-                        for (__z0, __z1) in zip(z0, z1) {
-                            let mut z0 = cast(*__z0);
-                            let mut z1 = cast(*__z1);
+                        for (z0_, z1_) in zip(z0, z1) {
+                            let mut z0 = cast(*z0_);
+                            let mut z1 = cast(*z1_);
                             let z1w = mul_avx512(simd, p, p_div0, p_div1, p_div2, p_div3, z1, w1);
                             (z0, z1) = (add_avx512(simd, p, z0, z1w), sub_avx512(simd, p, z0, z1w));
-                            *__z0 = cast(z0);
-                            *__z1 = cast(z1);
+                            *z0_ = cast(z0);
+                            *z1_ = cast(z1);
                         }
                     }
                 }
@@ -1034,14 +1186,24 @@ pub(crate) fn fwd_depth_first_avx512(
                     recursion_half * 2 + 1,
                 );
             }
-        },
-    );
+        }
+    }
+
+    simd.vectorize(Impl {
+        simd,
+        data,
+        p,
+        p_div,
+        twid,
+        recursion_depth,
+        recursion_half,
+    });
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 pub(crate) fn inv_breadth_first_avx512(
-    simd: Avx512,
+    simd: crate::V4,
     data: &mut [u32],
     p: u32,
     p_div: (u32, u32, u32, u32),
@@ -1049,22 +1211,40 @@ pub(crate) fn inv_breadth_first_avx512(
     recursion_depth: usize,
     recursion_half: usize,
 ) {
-    use pulp::as_arrays;
+    struct Impl<'a> {
+        simd: crate::V4,
+        data: &'a mut [u32],
+        p: u32,
+        p_div: (u32, u32, u32, u32),
+        inv_twid: &'a [u32],
+        recursion_depth: usize,
+        recursion_half: usize,
+    }
+    impl pulp::NullaryFnOnce for Impl<'_> {
+        type Output = ();
 
-    simd.vectorize(
         #[inline(always)]
-        || {
+        fn call(self) -> Self::Output {
+            let Self {
+                simd,
+                data,
+                p,
+                p_div,
+                inv_twid,
+                recursion_depth,
+                recursion_half,
+            } = self;
             let n = data.len();
             debug_assert!(n.is_power_of_two());
 
             let mut t = 1;
             let mut m = n;
             let mut w_idx = (m << recursion_depth) + recursion_half * m;
-            let p = simd.avx512f._mm512_set1_epi32(p as i32);
-            let p_div0 = simd.avx512f._mm512_set1_epi32(p_div.0 as i32);
-            let p_div1 = simd.avx512f._mm512_set1_epi32(p_div.1 as i32);
-            let p_div2 = simd.avx512f._mm512_set1_epi32(p_div.2 as i32);
-            let p_div3 = simd.avx512f._mm512_set1_epi32(p_div.3 as i32);
+            let p = simd.splat_u32x16(p);
+            let p_div0 = simd.splat_u32x16(p_div.0);
+            let p_div1 = simd.splat_u32x16(p_div.1);
+            let p_div2 = simd.splat_u32x16(p_div.2);
+            let p_div3 = simd.splat_u32x16(p_div.3);
 
             // m = n / 2
             // t = 1
@@ -1077,8 +1257,8 @@ pub(crate) fn inv_breadth_first_avx512(
                 let data = as_arrays_mut::<2, _>(data).0;
 
                 for (z0z1, w1) in zip(data, w) {
-                    let w1 = simd.permute1_epu32(*w1);
-                    let [mut z0, mut z1] = simd.interleave1_epu32(cast(*z0z1));
+                    let w1 = simd.permute1_u32x16(*w1);
+                    let [mut z0, mut z1] = simd.interleave1_u32x16(cast(*z0z1));
                     (z0, z1) = (
                         add_avx512(simd, p, z0, z1),
                         mul_avx512(
@@ -1092,7 +1272,7 @@ pub(crate) fn inv_breadth_first_avx512(
                             w1,
                         ),
                     );
-                    *z0z1 = cast(simd.interleave1_epu32([z0, z1]));
+                    *z0z1 = cast(simd.interleave1_u32x16([z0, z1]));
                 }
 
                 t *= 2;
@@ -1109,8 +1289,8 @@ pub(crate) fn inv_breadth_first_avx512(
                 let data = as_arrays_mut::<2, _>(data).0;
 
                 for (z0z0z1z1, w1) in zip(data, w) {
-                    let w1 = simd.permute2_epu32(*w1);
-                    let [mut z0, mut z1] = simd.interleave2_epu32(cast(*z0z0z1z1));
+                    let w1 = simd.permute2_u32x16(*w1);
+                    let [mut z0, mut z1] = simd.interleave2_u32x16(cast(*z0z0z1z1));
                     (z0, z1) = (
                         add_avx512(simd, p, z0, z1),
                         mul_avx512(
@@ -1124,7 +1304,7 @@ pub(crate) fn inv_breadth_first_avx512(
                             w1,
                         ),
                     );
-                    *z0z0z1z1 = cast(simd.interleave2_epu32([z0, z1]));
+                    *z0z0z1z1 = cast(simd.interleave2_u32x16([z0, z1]));
                 }
 
                 t *= 2;
@@ -1141,8 +1321,8 @@ pub(crate) fn inv_breadth_first_avx512(
                 let data = as_arrays_mut::<2, _>(data).0;
 
                 for (z0z0z0z0z1z1z1z1, w1) in zip(data, w) {
-                    let w1 = simd.permute4_epu32(*w1);
-                    let [mut z0, mut z1] = simd.interleave4_epu32(cast(*z0z0z0z0z1z1z1z1));
+                    let w1 = simd.permute4_u32x16(*w1);
+                    let [mut z0, mut z1] = simd.interleave4_u32x16(cast(*z0z0z0z0z1z1z1z1));
                     (z0, z1) = (
                         add_avx512(simd, p, z0, z1),
                         mul_avx512(
@@ -1156,7 +1336,7 @@ pub(crate) fn inv_breadth_first_avx512(
                             w1,
                         ),
                     );
-                    *z0z0z0z0z1z1z1z1 = cast(simd.interleave4_epu32([z0, z1]));
+                    *z0z0z0z0z1z1z1z1 = cast(simd.interleave4_u32x16([z0, z1]));
                 }
 
                 t *= 2;
@@ -1173,9 +1353,9 @@ pub(crate) fn inv_breadth_first_avx512(
                 let data = as_arrays_mut::<2, _>(data).0;
 
                 for (z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1, w1) in zip(data, w) {
-                    let w1 = simd.permute8_epu32(*w1);
+                    let w1 = simd.permute8_u32x16(*w1);
                     let [mut z0, mut z1] =
-                        simd.interleave8_epu32(cast(*z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1));
+                        simd.interleave8_u32x16(cast(*z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1));
                     (z0, z1) = (
                         add_avx512(simd, p, z0, z1),
                         mul_avx512(
@@ -1189,7 +1369,7 @@ pub(crate) fn inv_breadth_first_avx512(
                             w1,
                         ),
                     );
-                    *z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1 = cast(simd.interleave8_epu32([z0, z1]));
+                    *z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1 = cast(simd.interleave8_u32x16([z0, z1]));
                 }
 
                 t *= 2;
@@ -1205,11 +1385,11 @@ pub(crate) fn inv_breadth_first_avx512(
                     let (z0, z1) = data.split_at_mut(t);
                     let z0 = as_arrays_mut::<16, _>(z0).0;
                     let z1 = as_arrays_mut::<16, _>(z1).0;
-                    let w1 = simd.avx512f._mm512_set1_epi32(w1 as _);
+                    let w1 = simd.splat_u32x16(w1);
 
-                    for (__z0, __z1) in zip(z0, z1) {
-                        let mut z0 = cast(*__z0);
-                        let mut z1 = cast(*__z1);
+                    for (z0_, z1_) in zip(z0, z1) {
+                        let mut z0 = cast(*z0_);
+                        let mut z1 = cast(*z1_);
                         (z0, z1) = (
                             add_avx512(simd, p, z0, z1),
                             mul_avx512(
@@ -1223,20 +1403,29 @@ pub(crate) fn inv_breadth_first_avx512(
                                 w1,
                             ),
                         );
-                        *__z0 = cast(z0);
-                        *__z1 = cast(z1);
+                        *z0_ = cast(z0);
+                        *z1_ = cast(z1);
                     }
                 }
 
                 t *= 2;
             }
-        },
-    );
+        }
+    }
+    simd.vectorize(Impl {
+        simd,
+        data,
+        p,
+        p_div,
+        inv_twid,
+        recursion_depth,
+        recursion_half,
+    });
 }
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 pub(crate) fn inv_depth_first_avx512(
-    simd: Avx512,
+    simd: crate::V4,
     data: &mut [u32],
     p: u32,
     p_div: (u32, u32, u32, u32),
@@ -1244,9 +1433,30 @@ pub(crate) fn inv_depth_first_avx512(
     recursion_depth: usize,
     recursion_half: usize,
 ) {
-    simd.vectorize(
+    struct Impl<'a> {
+        simd: crate::V4,
+        data: &'a mut [u32],
+        p: u32,
+        p_div: (u32, u32, u32, u32),
+        inv_twid: &'a [u32],
+        recursion_depth: usize,
+        recursion_half: usize,
+    }
+    impl pulp::NullaryFnOnce for Impl<'_> {
+        type Output = ();
+
         #[inline(always)]
-        || {
+        fn call(self) -> Self::Output {
+            let Self {
+                simd,
+                data,
+                p,
+                p_div,
+                inv_twid,
+                recursion_depth,
+                recursion_half,
+            } = self;
+
             let n = data.len();
             debug_assert!(n.is_power_of_two());
 
@@ -1286,21 +1496,21 @@ pub(crate) fn inv_depth_first_avx512(
                     let m = 1;
                     let w_idx = (m << recursion_depth) + m * recursion_half;
                     let w = &inv_twid[w_idx..];
-                    let p = simd.avx512f._mm512_set1_epi32(p as i32);
-                    let p_div0 = simd.avx512f._mm512_set1_epi32(p_div.0 as i32);
-                    let p_div1 = simd.avx512f._mm512_set1_epi32(p_div.1 as i32);
-                    let p_div2 = simd.avx512f._mm512_set1_epi32(p_div.2 as i32);
-                    let p_div3 = simd.avx512f._mm512_set1_epi32(p_div.3 as i32);
+                    let p = simd.splat_u32x16(p);
+                    let p_div0 = simd.splat_u32x16(p_div.0);
+                    let p_div1 = simd.splat_u32x16(p_div.1);
+                    let p_div2 = simd.splat_u32x16(p_div.2);
+                    let p_div3 = simd.splat_u32x16(p_div.3);
 
                     for (data, &w1) in zip(data.chunks_exact_mut(2 * t), w) {
                         let (z0, z1) = data.split_at_mut(t);
                         let z0 = as_arrays_mut::<16, _>(z0).0;
                         let z1 = as_arrays_mut::<16, _>(z1).0;
-                        let w1 = simd.avx512f._mm512_set1_epi32(w1 as _);
+                        let w1 = simd.splat_u32x16(w1);
 
-                        for (__z0, __z1) in zip(z0, z1) {
-                            let mut z0 = cast(*__z0);
-                            let mut z1 = cast(*__z1);
+                        for (z0_, z1_) in zip(z0, z1) {
+                            let mut z0 = cast(*z0_);
+                            let mut z1 = cast(*z1_);
                             (z0, z1) = (
                                 add_avx512(simd, p, z0, z1),
                                 mul_avx512(
@@ -1314,14 +1524,24 @@ pub(crate) fn inv_depth_first_avx512(
                                     w1,
                                 ),
                             );
-                            *__z0 = cast(z0);
-                            *__z1 = cast(z1);
+                            *z0_ = cast(z0);
+                            *z1_ = cast(z1);
                         }
                     }
                 }
             }
-        },
-    );
+        }
+    }
+
+    simd.vectorize(Impl {
+        simd,
+        data,
+        p,
+        p_div,
+        inv_twid,
+        recursion_depth,
+        recursion_half,
+    });
 }
 
 pub(crate) fn fwd_scalar(data: &mut [u32], p: u32, p_div: Div32, twid: &[u32]) {
@@ -1332,7 +1552,7 @@ pub(crate) fn inv_scalar(data: &mut [u32], p: u32, p_div: Div32, inv_twid: &[u32
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub(crate) fn fwd_avx2(simd: Avx2, data: &mut [u32], p: u32, p_div: Div32, twid: &[u32]) {
+pub(crate) fn fwd_avx2(simd: crate::V3, data: &mut [u32], p: u32, p_div: Div32, twid: &[u32]) {
     let p_div = p_div.double_reciprocal;
     let p_div = (
         p_div as u32,
@@ -1343,7 +1563,7 @@ pub(crate) fn fwd_avx2(simd: Avx2, data: &mut [u32], p: u32, p_div: Div32, twid:
     fwd_depth_first_avx2(simd, data, p, p_div, twid, 0, 0);
 }
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub(crate) fn inv_avx2(simd: Avx2, data: &mut [u32], p: u32, p_div: Div32, inv_twid: &[u32]) {
+pub(crate) fn inv_avx2(simd: crate::V3, data: &mut [u32], p: u32, p_div: Div32, inv_twid: &[u32]) {
     let p_div = p_div.double_reciprocal;
     let p_div = (
         p_div as u32,
@@ -1356,7 +1576,7 @@ pub(crate) fn inv_avx2(simd: Avx2, data: &mut [u32], p: u32, p_div: Div32, inv_t
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub(crate) fn fwd_avx512(simd: Avx512, data: &mut [u32], p: u32, p_div: Div32, twid: &[u32]) {
+pub(crate) fn fwd_avx512(simd: crate::V4, data: &mut [u32], p: u32, p_div: Div32, twid: &[u32]) {
     let p_div = p_div.double_reciprocal;
     let p_div = (
         p_div as u32,
@@ -1368,7 +1588,13 @@ pub(crate) fn fwd_avx512(simd: Avx512, data: &mut [u32], p: u32, p_div: Div32, t
 }
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub(crate) fn inv_avx512(simd: Avx512, data: &mut [u32], p: u32, p_div: Div32, inv_twid: &[u32]) {
+pub(crate) fn inv_avx512(
+    simd: crate::V4,
+    data: &mut [u32],
+    p: u32,
+    p_div: Div32,
+    inv_twid: &[u32],
+) {
     let p_div = p_div.double_reciprocal;
     let p_div = (
         p_div as u32,
@@ -1383,10 +1609,12 @@ pub(crate) fn inv_avx512(simd: Avx512, data: &mut [u32], p: u32, p_div: Div32, i
 mod tests {
     use super::*;
     use crate::{
-        prime::largest_prime_in_arithmetic_progression64, prime32::init_negacyclic_twiddles,
+        prime::largest_prime_in_arithmetic_progression64,
+        prime32::{
+            init_negacyclic_twiddles,
+            tests::{mul, random_lhs_rhs_with_negacyclic_convolution},
+        },
     };
-    use rand::random;
-
     extern crate alloc;
     use alloc::vec;
 
@@ -1396,35 +1624,8 @@ mod tests {
             let p = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 31, 1 << 32).unwrap()
                 as u32;
 
-            let mut lhs = vec![0u32; n];
-            let mut rhs = vec![0u32; n];
-
-            for x in &mut lhs {
-                *x = random();
-                *x %= p;
-            }
-            for x in &mut rhs {
-                *x = random();
-                *x %= p;
-            }
-
-            let lhs = lhs;
-            let rhs = rhs;
-
-            let mut full_convolution = vec![0u32; 2 * n];
-            let mut negacyclic_convolution = vec![0u32; n];
-            for i in 0..n {
-                for j in 0..n {
-                    full_convolution[i + j] = add(
-                        p,
-                        full_convolution[i + j],
-                        mul(Div32::new(p), lhs[i], rhs[j]),
-                    );
-                }
-            }
-            for i in 0..n {
-                negacyclic_convolution[i] = sub(p, full_convolution[i], full_convolution[i + n]);
-            }
+            let (lhs, rhs, negacyclic_convolution) =
+                random_lhs_rhs_with_negacyclic_convolution(n, p);
 
             let mut twid = vec![0u32; n];
             let mut inv_twid = vec![0u32; n];
@@ -1438,17 +1639,14 @@ mod tests {
             fwd_scalar(&mut rhs_fourier, p, Div32::new(p), &twid);
 
             for i in 0..n {
-                prod[i] = mul(Div32::new(p), lhs_fourier[i], rhs_fourier[i]);
+                prod[i] = mul(p, lhs_fourier[i], rhs_fourier[i]);
             }
 
             inv_scalar(&mut prod, p, Div32::new(p), &inv_twid);
             let result = prod;
 
             for i in 0..n {
-                assert_eq!(
-                    result[i],
-                    mul(Div32::new(p), negacyclic_convolution[i], n as u32),
-                );
+                assert_eq!(result[i], mul(p, negacyclic_convolution[i], n as u32));
             }
         }
     }
@@ -1456,41 +1654,13 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
     fn test_product_avx2() {
-        if let Some(simd) = Avx2::try_new() {
+        if let Some(simd) = crate::V3::try_new() {
             for n in [32, 64, 128, 256, 512, 1024] {
                 let p = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 31, 1 << 32)
                     .unwrap() as u32;
 
-                let mut lhs = vec![0u32; n];
-                let mut rhs = vec![0u32; n];
-
-                for x in &mut lhs {
-                    *x = random();
-                    *x %= p;
-                }
-                for x in &mut rhs {
-                    *x = random();
-                    *x %= p;
-                }
-
-                let lhs = lhs;
-                let rhs = rhs;
-
-                let mut full_convolution = vec![0u32; 2 * n];
-                let mut negacyclic_convolution = vec![0u32; n];
-                for i in 0..n {
-                    for j in 0..n {
-                        full_convolution[i + j] = add(
-                            p,
-                            full_convolution[i + j],
-                            mul(Div32::new(p), lhs[i], rhs[j]),
-                        );
-                    }
-                }
-                for i in 0..n {
-                    negacyclic_convolution[i] =
-                        sub(p, full_convolution[i], full_convolution[i + n]);
-                }
+                let (lhs, rhs, negacyclic_convolution) =
+                    random_lhs_rhs_with_negacyclic_convolution(n, p);
 
                 let mut twid = vec![0u32; n];
                 let mut inv_twid = vec![0u32; n];
@@ -1504,17 +1674,14 @@ mod tests {
                 fwd_avx2(simd, &mut rhs_fourier, p, Div32::new(p), &twid);
 
                 for i in 0..n {
-                    prod[i] = mul(Div32::new(p), lhs_fourier[i], rhs_fourier[i]);
+                    prod[i] = mul(p, lhs_fourier[i], rhs_fourier[i]);
                 }
 
                 inv_avx2(simd, &mut prod, p, Div32::new(p), &inv_twid);
                 let result = prod;
 
                 for i in 0..n {
-                    assert_eq!(
-                        result[i],
-                        mul(Div32::new(p), negacyclic_convolution[i], n as u32),
-                    );
+                    assert_eq!(result[i], mul(p, negacyclic_convolution[i], n as u32));
                 }
             }
         }
@@ -1524,41 +1691,13 @@ mod tests {
     #[cfg(feature = "nightly")]
     #[test]
     fn test_product_avx512() {
-        if let Some(simd) = Avx512::try_new() {
+        if let Some(simd) = crate::V4::try_new() {
             for n in [32, 64, 128, 256, 512, 1024] {
                 let p = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 31, 1 << 32)
                     .unwrap() as u32;
 
-                let mut lhs = vec![0u32; n];
-                let mut rhs = vec![0u32; n];
-
-                for x in &mut lhs {
-                    *x = random();
-                    *x %= p;
-                }
-                for x in &mut rhs {
-                    *x = random();
-                    *x %= p;
-                }
-
-                let lhs = lhs;
-                let rhs = rhs;
-
-                let mut full_convolution = vec![0u32; 2 * n];
-                let mut negacyclic_convolution = vec![0u32; n];
-                for i in 0..n {
-                    for j in 0..n {
-                        full_convolution[i + j] = add(
-                            p,
-                            full_convolution[i + j],
-                            mul(Div32::new(p), lhs[i], rhs[j]),
-                        );
-                    }
-                }
-                for i in 0..n {
-                    negacyclic_convolution[i] =
-                        sub(p, full_convolution[i], full_convolution[i + n]);
-                }
+                let (lhs, rhs, negacyclic_convolution) =
+                    random_lhs_rhs_with_negacyclic_convolution(n, p);
 
                 let mut twid = vec![0u32; n];
                 let mut inv_twid = vec![0u32; n];
@@ -1572,17 +1711,14 @@ mod tests {
                 fwd_avx512(simd, &mut rhs_fourier, p, Div32::new(p), &twid);
 
                 for i in 0..n {
-                    prod[i] = mul(Div32::new(p), lhs_fourier[i], rhs_fourier[i]);
+                    prod[i] = mul(p, lhs_fourier[i], rhs_fourier[i]);
                 }
 
                 inv_avx512(simd, &mut prod, p, Div32::new(p), &inv_twid);
                 let result = prod;
 
                 for i in 0..n {
-                    assert_eq!(
-                        result[i],
-                        mul(Div32::new(p), negacyclic_convolution[i], n as u32),
-                    );
+                    assert_eq!(result[i], mul(p, negacyclic_convolution[i], n as u32));
                 }
             }
         }

@@ -99,6 +99,8 @@ pub const fn is_prime64(n: u64) -> bool {
 
     // deterministic miller rabin test, works for any n < 2^64
     // aside from the primes tested just before
+
+    // https://en.wikipedia.org/wiki/Miller-Rabin_primality_test#Testing_against_small_sets_of_bases
     let mut s = 0;
     let mut d = n - 1;
 

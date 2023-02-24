@@ -1,125 +1,107 @@
-use crate::Avx512;
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
-#[cfg(target_arch = "x86_64")]
-use core::arch::x86_64::*;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+use pulp::x86::*;
 
 #[inline(always)]
 pub(crate) fn fwd_butterfly_avx512(
-    simd: Avx512,
-    z0: __m512i,
-    z1: __m512i,
-    w: __m512i,
-    w_shoup: __m512i,
-    p: __m512i,
-    neg_p: __m512i,
-    two_p: __m512i,
-) -> (__m512i, __m512i) {
+    simd: crate::V4IFma,
+    z0: u64x8,
+    z1: u64x8,
+    w: u64x8,
+    w_shoup: u64x8,
+    p: u64x8,
+    neg_p: u64x8,
+    two_p: u64x8,
+) -> (u64x8, u64x8) {
     let _ = p;
-    let avx = simd.avx512f;
-    let fma = simd.avx512ifma;
-    let z0 = simd.small_mod_epu64(two_p, z0);
-    let zero = avx._mm512_setzero_si512();
-    let shoup_q = fma._mm512_madd52hi_epu64(zero, z1, w_shoup);
-    let t = avx._mm512_and_si512(
-        avx._mm512_set1_epi64(((1u64 << 52) - 1u64) as i64),
-        fma._mm512_madd52lo_epu64(fma._mm512_madd52lo_epu64(zero, z1, w), shoup_q, neg_p),
-    );
+    let z0 = simd.small_mod_u64x8(two_p, z0);
+    let shoup_q = simd.widening_mul_u52x8(z1, w_shoup).1;
+    let t = simd.wrapping_mul_add_u52x8(shoup_q, neg_p, simd.widening_mul_u52x8(z1, w).0);
     (
-        avx._mm512_add_epi64(z0, t),
-        avx._mm512_add_epi64(avx._mm512_sub_epi64(z0, t), two_p),
+        simd.wrapping_add_u64x8(z0, t),
+        simd.wrapping_add_u64x8(simd.wrapping_sub_u64x8(z0, t), two_p),
     )
 }
 
 #[inline(always)]
 pub(crate) fn fwd_last_butterfly_avx512(
-    simd: Avx512,
-    z0: __m512i,
-    z1: __m512i,
-    w: __m512i,
-    w_shoup: __m512i,
-    p: __m512i,
-    neg_p: __m512i,
-    two_p: __m512i,
-) -> (__m512i, __m512i) {
-    let avx = simd.avx512f;
-    let fma = simd.avx512ifma;
-    let z0 = simd.small_mod_epu64(two_p, z0);
-    let z0 = simd.small_mod_epu64(p, z0);
-    let zero = avx._mm512_setzero_si512();
-    let shoup_q = fma._mm512_madd52hi_epu64(zero, z1, w_shoup);
-    let t = avx._mm512_and_si512(
-        avx._mm512_set1_epi64(((1u64 << 52) - 1u64) as i64),
-        fma._mm512_madd52lo_epu64(fma._mm512_madd52lo_epu64(zero, z1, w), shoup_q, neg_p),
-    );
-    let t = simd.small_mod_epu64(p, t);
+    simd: crate::V4IFma,
+    z0: u64x8,
+    z1: u64x8,
+    w: u64x8,
+    w_shoup: u64x8,
+    p: u64x8,
+    neg_p: u64x8,
+    two_p: u64x8,
+) -> (u64x8, u64x8) {
+    let z0 = simd.small_mod_u64x8(two_p, z0);
+    let z0 = simd.small_mod_u64x8(p, z0);
+    let shoup_q = simd.widening_mul_u52x8(z1, w_shoup).1;
+    let t = simd.wrapping_mul_add_u52x8(shoup_q, neg_p, simd.widening_mul_u52x8(z1, w).0);
+    let t = simd.small_mod_u64x8(p, t);
     (
-        simd.small_mod_epu64(p, avx._mm512_add_epi64(z0, t)),
-        simd.small_mod_epu64(p, avx._mm512_add_epi64(avx._mm512_sub_epi64(z0, t), p)),
+        simd.small_mod_u64x8(p, simd.wrapping_add_u64x8(z0, t)),
+        simd.small_mod_u64x8(
+            p,
+            simd.wrapping_add_u64x8(simd.wrapping_sub_u64x8(z0, t), p),
+        ),
     )
 }
 
 #[inline(always)]
 pub(crate) fn inv_butterfly_avx512(
-    simd: Avx512,
-    z0: __m512i,
-    z1: __m512i,
-    w: __m512i,
-    w_shoup: __m512i,
-    p: __m512i,
-    neg_p: __m512i,
-    two_p: __m512i,
-) -> (__m512i, __m512i) {
+    simd: crate::V4IFma,
+    z0: u64x8,
+    z1: u64x8,
+    w: u64x8,
+    w_shoup: u64x8,
+    p: u64x8,
+    neg_p: u64x8,
+    two_p: u64x8,
+) -> (u64x8, u64x8) {
     let _ = p;
-    let avx = simd.avx512f;
-    let fma = simd.avx512ifma;
 
-    let y0 = avx._mm512_add_epi64(z0, z1);
-    let y0 = simd.small_mod_epu64(two_p, y0);
-    let t = avx._mm512_add_epi64(avx._mm512_sub_epi64(z0, z1), two_p);
+    let y0 = simd.wrapping_add_u64x8(z0, z1);
+    let y0 = simd.small_mod_u64x8(two_p, y0);
+    let t = simd.wrapping_add_u64x8(simd.wrapping_sub_u64x8(z0, z1), two_p);
 
-    let zero = avx._mm512_setzero_si512();
-    let shoup_q = fma._mm512_madd52hi_epu64(zero, t, w_shoup);
-    let y1 = avx._mm512_and_si512(
-        avx._mm512_set1_epi64(((1u64 << 52) - 1u64) as i64),
-        fma._mm512_madd52lo_epu64(fma._mm512_madd52lo_epu64(zero, t, w), shoup_q, neg_p),
-    );
+    let shoup_q = simd.widening_mul_u52x8(t, w_shoup).1;
+    let y1 = simd.wrapping_mul_add_u52x8(shoup_q, neg_p, simd.widening_mul_u52x8(t, w).0);
 
     (y0, y1)
 }
 
 #[inline(always)]
 pub(crate) fn inv_last_butterfly_avx512(
-    simd: Avx512,
-    z0: __m512i,
-    z1: __m512i,
-    w: __m512i,
-    w_shoup: __m512i,
-    p: __m512i,
-    neg_p: __m512i,
-    two_p: __m512i,
-) -> (__m512i, __m512i) {
+    simd: crate::V4IFma,
+    z0: u64x8,
+    z1: u64x8,
+    w: u64x8,
+    w_shoup: u64x8,
+    p: u64x8,
+    neg_p: u64x8,
+    two_p: u64x8,
+) -> (u64x8, u64x8) {
     let _ = p;
-    let avx = simd.avx512f;
-    let fma = simd.avx512ifma;
 
-    let y0 = avx._mm512_add_epi64(z0, z1);
-    let y0 = simd.small_mod_epu64(two_p, y0);
-    let y0 = simd.small_mod_epu64(p, y0);
-    let t = avx._mm512_add_epi64(avx._mm512_sub_epi64(z0, z1), two_p);
+    let y0 = simd.wrapping_add_u64x8(z0, z1);
+    let y0 = simd.small_mod_u64x8(two_p, y0);
+    let y0 = simd.small_mod_u64x8(p, y0);
+    let t = simd.wrapping_add_u64x8(simd.wrapping_sub_u64x8(z0, z1), two_p);
 
-    let zero = avx._mm512_setzero_si512();
-    let shoup_q = fma._mm512_madd52hi_epu64(zero, t, w_shoup);
-    let y1 = avx._mm512_and_si512(
-        avx._mm512_set1_epi64(((1u64 << 52) - 1u64) as i64),
-        fma._mm512_madd52lo_epu64(fma._mm512_madd52lo_epu64(zero, t, w), shoup_q, neg_p),
-    );
-    let y1 = simd.small_mod_epu64(p, y1);
+    let shoup_q = simd.widening_mul_u52x8(t, w_shoup).1;
+    let y1 = simd.wrapping_mul_add_u52x8(shoup_q, neg_p, simd.widening_mul_u52x8(t, w).0);
+    let y1 = simd.small_mod_u64x8(p, y1);
 
     (y0, y1)
 }
 
-pub(crate) fn fwd_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+pub(crate) fn fwd_avx512(
+    simd: crate::V4IFma,
+    p: u64,
+    data: &mut [u64],
+    twid: &[u64],
+    twid_shoup: &[u64],
+) {
     super::shoup::fwd_depth_first_avx512(
         simd,
         p,
@@ -139,7 +121,13 @@ pub(crate) fn fwd_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], t
     )
 }
 
-pub(crate) fn inv_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+pub(crate) fn inv_avx512(
+    simd: crate::V4IFma,
+    p: u64,
+    data: &mut [u64],
+    twid: &[u64],
+    twid_shoup: &[u64],
+) {
     super::shoup::inv_depth_first_avx512(
         simd,
         p,
@@ -161,55 +149,27 @@ pub(crate) fn inv_avx512(simd: Avx512, p: u64, data: &mut [u64], twid: &[u64], t
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        fastdiv::Div64,
-        prime::largest_prime_in_arithmetic_progression64,
-        prime64::{generic_solinas::PrimeModulus, init_negacyclic_twiddles_shoup},
-    };
-
     use super::*;
+    use crate::{
+        prime::largest_prime_in_arithmetic_progression64,
+        prime64::{
+            init_negacyclic_twiddles_shoup,
+            tests::{mul, random_lhs_rhs_with_negacyclic_convolution},
+        },
+    };
     use alloc::vec;
-    use rand::random;
 
     extern crate alloc;
 
     #[test]
     fn test_product() {
-        if let Some(simd) = Avx512::try_new() {
+        if let Some(simd) = crate::V4IFma::try_new() {
             for n in [16, 32, 64, 128, 256, 512, 1024] {
                 let p = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 49, 1 << 50)
                     .unwrap();
 
-                let mut lhs = vec![0u64; n];
-                let mut rhs = vec![0u64; n];
-
-                for x in &mut lhs {
-                    *x = random();
-                    *x %= p;
-                }
-                for x in &mut rhs {
-                    *x = random();
-                    *x %= p;
-                }
-
-                let lhs = lhs;
-                let rhs = rhs;
-
-                let mut full_convolution = vec![0u64; 2 * n];
-                let mut negacyclic_convolution = vec![0u64; n];
-                for i in 0..n {
-                    for j in 0..n {
-                        full_convolution[i + j] = PrimeModulus::add(
-                            p,
-                            full_convolution[i + j],
-                            <u64 as PrimeModulus>::mul(Div64::new(p), lhs[i], rhs[j]),
-                        );
-                    }
-                }
-                for i in 0..n {
-                    negacyclic_convolution[i] =
-                        PrimeModulus::sub(p, full_convolution[i], full_convolution[i + n]);
-                }
+                let (lhs, rhs, negacyclic_convolution) =
+                    random_lhs_rhs_with_negacyclic_convolution(n, p);
 
                 let mut twid = vec![0u64; n];
                 let mut twid_shoup = vec![0u64; n];
@@ -239,22 +199,14 @@ mod tests {
                 }
 
                 for i in 0..n {
-                    prod[i] =
-                        <u64 as PrimeModulus>::mul(Div64::new(p), lhs_fourier[i], rhs_fourier[i]);
+                    prod[i] = mul(p, lhs_fourier[i], rhs_fourier[i]);
                 }
 
                 inv_avx512(simd, p, &mut prod, &inv_twid, &inv_twid_shoup);
                 let result = prod;
 
                 for i in 0..n {
-                    assert_eq!(
-                        result[i],
-                        <u64 as PrimeModulus>::mul(
-                            Div64::new(p),
-                            negacyclic_convolution[i],
-                            n as u64
-                        ),
-                    );
+                    assert_eq!(result[i], mul(p, negacyclic_convolution[i], n as u64));
                 }
             }
         }

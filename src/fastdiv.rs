@@ -1,13 +1,13 @@
 use crate::u256;
 
 #[inline(always)]
-pub(crate) const fn mul64_u32(lowbits: u64, d: u32) -> u32 {
+pub(crate) const fn mul128_u32(lowbits: u64, d: u32) -> u32 {
     ((lowbits as u128 * d as u128) >> 64) as u32
 }
 
 #[inline(always)]
 pub(crate) const fn mul128_u64(lowbits: u128, d: u64) -> u64 {
-    let mut bottom_half = (lowbits & 0xFFFFFFFFFFFFFFFF) * d as u128;
+    let mut bottom_half = (lowbits & 0xFFFF_FFFF_FFFF_FFFF) * d as u128;
     bottom_half >>= 64;
     let top_half = (lowbits >> 64) * d as u128;
     let both_halves = bottom_half + top_half;
@@ -60,14 +60,14 @@ impl Div32 {
     /// Returns the quotient of the division of `n` by `d`.
     #[inline(always)]
     pub const fn div(n: u32, d: Self) -> u32 {
-        mul64_u32(d.single_reciprocal, n)
+        mul128_u32(d.single_reciprocal, n)
     }
 
     /// Returns the remainder of the division of `n` by `d`.
     #[inline(always)]
     pub const fn rem(n: u32, d: Self) -> u32 {
         let low_bits = d.single_reciprocal.wrapping_mul(n as u64);
-        mul64_u32(low_bits, d.divisor)
+        mul128_u32(low_bits, d.divisor)
     }
 
     /// Returns the quotient of the division of `n` by `d`.
@@ -159,7 +159,7 @@ mod tests {
         for _ in 0..1000 {
             let divisor = loop {
                 let d = random();
-                if d != 0 {
+                if d > 1 {
                     break d;
                 }
             };
@@ -179,7 +179,7 @@ mod tests {
         for _ in 0..1000 {
             let divisor = loop {
                 let d = random();
-                if d != 0 {
+                if d > 1 {
                     break d;
                 }
             };

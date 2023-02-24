@@ -1,14 +1,12 @@
-use aligned_vec::{avec, ABox};
-
 use crate::{
     bit_rev,
     fastdiv::{Div32, Div64},
     roots::find_primitive_root64,
 };
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
-#[cfg(target_arch = "x86_64")]
-use core::arch::x86_64::*;
+use aligned_vec::{avec, ABox};
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+use pulp::{cast, x86::*};
 
 const RECURSION_THRESHOLD: usize = 2048;
 
@@ -19,83 +17,89 @@ mod less_than_30bit;
 mod less_than_31bit;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-impl crate::Avx2 {
+impl crate::V3 {
     #[inline(always)]
-    fn interleave4_epu32(self, z0z0z0z0z1z1z1z1: [__m256i; 2]) -> [__m256i; 2] {
+    fn interleave4_u32x8(self, z0z0z0z0z1z1z1z1: [u32x8; 2]) -> [u32x8; 2] {
         let avx = self.avx;
         [
-            avx._mm256_permute2f128_si256::<0b00100000>(z0z0z0z0z1z1z1z1[0], z0z0z0z0z1z1z1z1[1]),
-            avx._mm256_permute2f128_si256::<0b00110001>(z0z0z0z0z1z1z1z1[0], z0z0z0z0z1z1z1z1[1]),
+            cast(avx._mm256_permute2f128_si256::<0b0010_0000>(
+                cast(z0z0z0z0z1z1z1z1[0]),
+                cast(z0z0z0z0z1z1z1z1[1]),
+            )),
+            cast(avx._mm256_permute2f128_si256::<0b0011_0001>(
+                cast(z0z0z0z0z1z1z1z1[0]),
+                cast(z0z0z0z0z1z1z1z1[1]),
+            )),
         ]
     }
 
     #[inline(always)]
-    fn permute4_epu32(self, w: [u32; 2]) -> __m256i {
+    fn permute4_u32x8(self, w: [u32; 2]) -> u32x8 {
         let avx = self.avx;
         let w0 = self.sse2._mm_set1_epi32(w[0] as i32);
         let w1 = self.sse2._mm_set1_epi32(w[1] as i32);
-        avx._mm256_insertf128_si256::<1>(avx._mm256_castsi128_si256(w0), w1)
+        cast(avx._mm256_insertf128_si256::<1>(avx._mm256_castsi128_si256(w0), w1))
     }
 
     #[inline(always)]
-    fn interleave2_epu32(self, z0z0z1z1: [__m256i; 2]) -> [__m256i; 2] {
+    fn interleave2_u32x8(self, z0z0z1z1: [u32x8; 2]) -> [u32x8; 2] {
+        let avx = self.avx2;
         [
-            self.avx2._mm256_unpacklo_epi64(z0z0z1z1[0], z0z0z1z1[1]),
-            self.avx2._mm256_unpackhi_epi64(z0z0z1z1[0], z0z0z1z1[1]),
+            cast(avx._mm256_unpacklo_epi64(cast(z0z0z1z1[0]), cast(z0z0z1z1[1]))),
+            cast(avx._mm256_unpackhi_epi64(cast(z0z0z1z1[0]), cast(z0z0z1z1[1]))),
         ]
     }
 
     #[inline(always)]
-    fn permute2_epu32(self, w: [u32; 4]) -> __m256i {
+    fn permute2_u32x8(self, w: [u32; 4]) -> u32x8 {
         let avx = self.avx;
         let w0123 = pulp::cast(w);
         let w0022 = self.sse2._mm_castps_si128(self.sse3._mm_moveldup_ps(w0123));
         let w1133 = self.sse2._mm_castps_si128(self.sse3._mm_movehdup_ps(w0123));
-        avx._mm256_insertf128_si256::<1>(avx._mm256_castsi128_si256(w0022), w1133)
+        cast(avx._mm256_insertf128_si256::<1>(avx._mm256_castsi128_si256(w0022), w1133))
     }
 
     #[inline(always)]
-    fn interleave1_epu32(self, z0z0z1z1: [__m256i; 2]) -> [__m256i; 2] {
+    fn interleave1_u32x8(self, z0z0z1z1: [u32x8; 2]) -> [u32x8; 2] {
         let avx = self.avx2;
         let x = [
             // 00 10 01 11 04 14 05 15 08 18 09 19 0c 1c 0d 1d
-            avx._mm256_unpacklo_epi32(z0z0z1z1[0], z0z0z1z1[1]),
+            (avx._mm256_unpacklo_epi32(cast(z0z0z1z1[0]), cast(z0z0z1z1[1]))),
             // 02 12 03 13 06 16 07 17 0a 1a 0b 1b 0e 1e 0f 1f
-            avx._mm256_unpackhi_epi32(z0z0z1z1[0], z0z0z1z1[1]),
+            avx._mm256_unpackhi_epi32(cast(z0z0z1z1[0]), cast(z0z0z1z1[1])),
         ];
         [
             // 00 10 02 12 04 14 06 16 08 18 0a 1a 0c 1c 0c 1c
-            avx._mm256_unpacklo_epi64(x[0], x[1]),
+            cast(avx._mm256_unpacklo_epi64(x[0], x[1])),
             // 01 11 03 13 05 15 07 17 09 19 0b 1b 0d 1d 0f 1f
-            avx._mm256_unpackhi_epi64(x[0], x[1]),
+            cast(avx._mm256_unpackhi_epi64(x[0], x[1])),
         ]
     }
 
     #[inline(always)]
-    fn permute1_epu32(self, w: [u32; 8]) -> __m256i {
+    fn permute1_u32x8(self, w: [u32; 8]) -> u32x8 {
         let avx = self.avx;
-        let [w0123, w4567]: [__m128i; 2] = pulp::cast(w);
-        let w0415 = self.sse2._mm_unpacklo_epi32(w0123, w4567);
-        let w2637 = self.sse2._mm_unpackhi_epi32(w0123, w4567);
-        avx._mm256_insertf128_si256::<1>(avx._mm256_castsi128_si256(w0415), w2637)
+        let [w0123, w4567]: [u32x4; 2] = pulp::cast(w);
+        let w0415 = self.sse2._mm_unpacklo_epi32(cast(w0123), cast(w4567));
+        let w2637 = self.sse2._mm_unpackhi_epi32(cast(w0123), cast(w4567));
+        cast(avx._mm256_insertf128_si256::<1>(avx._mm256_castsi128_si256(w0415), w2637))
     }
 
     #[inline(always)]
-    pub fn small_mod_epu32(self, modulus: __m256i, x: __m256i) -> __m256i {
-        let avx = self.avx2;
-        avx._mm256_blendv_epi8(
-            avx._mm256_sub_epi32(x, modulus),
+    pub fn small_mod_u32x8(self, modulus: u32x8, x: u32x8) -> u32x8 {
+        self.select_u32x8(
+            self.cmp_gt_u32x8(modulus, x),
             x,
-            self._mm256_cmpgt_epu32(modulus, x),
+            self.wrapping_sub_u32x8(x, modulus),
         )
     }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-impl crate::Avx512 {
+impl crate::V4 {
     #[inline(always)]
-    fn interleave8_epu32(self, z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1: [__m512i; 2]) -> [__m512i; 2] {
+    fn interleave8_u32x16(self, z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1: [u32x16; 2]) -> [u32x16; 2] {
         let avx = self.avx512f;
         let idx_0 = avx._mm512_setr_epi32(
             0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
@@ -104,30 +108,30 @@ impl crate::Avx512 {
             0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
         );
         [
-            avx._mm512_permutex2var_epi32(
-                z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1[0],
+            cast(avx._mm512_permutex2var_epi32(
+                cast(z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1[0]),
                 idx_0,
-                z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1[1],
-            ),
-            avx._mm512_permutex2var_epi32(
-                z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1[0],
+                cast(z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1[1]),
+            )),
+            cast(avx._mm512_permutex2var_epi32(
+                cast(z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1[0]),
                 idx_1,
-                z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1[1],
-            ),
+                cast(z0z0z0z0z0z0z0z0z1z1z1z1z1z1z1z1[1]),
+            )),
         ]
     }
 
     #[inline(always)]
-    fn permute8_epu32(self, w: [u32; 2]) -> __m512i {
+    fn permute8_u32x16(self, w: [u32; 2]) -> u32x16 {
         let avx = self.avx512f;
         let w = pulp::cast(w);
         let w01xxxxxxxxxxxxxx = avx._mm512_set1_epi64(w);
         let idx = avx._mm512_setr_epi32(0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1);
-        avx._mm512_permutexvar_epi32(idx, w01xxxxxxxxxxxxxx)
+        cast(avx._mm512_permutexvar_epi32(idx, w01xxxxxxxxxxxxxx))
     }
 
     #[inline(always)]
-    fn interleave4_epu32(self, z0z0z0z0z1z1z1z1: [__m512i; 2]) -> [__m512i; 2] {
+    fn interleave4_u32x16(self, z0z0z0z0z1z1z1z1: [u32x16; 2]) -> [u32x16; 2] {
         let avx = self.avx512f;
         let idx_0 = avx._mm512_setr_epi32(
             0x0, 0x1, 0x2, 0x3, 0x10, 0x11, 0x12, 0x13, 0x8, 0x9, 0xa, 0xb, 0x18, 0x19, 0x1a, 0x1b,
@@ -136,74 +140,81 @@ impl crate::Avx512 {
             0x4, 0x5, 0x6, 0x7, 0x14, 0x15, 0x16, 0x17, 0xc, 0xd, 0xe, 0xf, 0x1c, 0x1d, 0x1e, 0x1f,
         );
         [
-            avx._mm512_permutex2var_epi32(z0z0z0z0z1z1z1z1[0], idx_0, z0z0z0z0z1z1z1z1[1]),
-            avx._mm512_permutex2var_epi32(z0z0z0z0z1z1z1z1[0], idx_1, z0z0z0z0z1z1z1z1[1]),
+            cast(avx._mm512_permutex2var_epi32(
+                cast(z0z0z0z0z1z1z1z1[0]),
+                idx_0,
+                cast(z0z0z0z0z1z1z1z1[1]),
+            )),
+            cast(avx._mm512_permutex2var_epi32(
+                cast(z0z0z0z0z1z1z1z1[0]),
+                idx_1,
+                cast(z0z0z0z0z1z1z1z1[1]),
+            )),
         ]
     }
 
     #[inline(always)]
-    fn permute4_epu32(self, w: [u32; 4]) -> __m512i {
+    fn permute4_u32x16(self, w: [u32; 4]) -> u32x16 {
         let avx = self.avx512f;
         let w = pulp::cast(w);
         let w0123xxxxxxxxxxxx = avx._mm512_castsi128_si512(w);
         let idx = avx._mm512_setr_epi32(0, 0, 0, 0, 2, 2, 2, 2, 1, 1, 1, 1, 3, 3, 3, 3);
-        avx._mm512_permutexvar_epi32(idx, w0123xxxxxxxxxxxx)
+        cast(avx._mm512_permutexvar_epi32(idx, w0123xxxxxxxxxxxx))
     }
 
     #[inline(always)]
-    fn interleave2_epu32(self, z0z0z1z1: [__m512i; 2]) -> [__m512i; 2] {
+    fn interleave2_u32x16(self, z0z0z1z1: [u32x16; 2]) -> [u32x16; 2] {
         let avx = self.avx512f;
         [
             // 00 01 10 11 04 05 14 15 08 09 18 19 0c 0d 1c 1d
-            avx._mm512_unpacklo_epi64(z0z0z1z1[0], z0z0z1z1[1]),
+            cast(avx._mm512_unpacklo_epi64(cast(z0z0z1z1[0]), cast(z0z0z1z1[1]))),
             // 02 03 12 13 06 07 16 17 0a 0b 1a 1b 0e 0f 1e 1f
-            avx._mm512_unpackhi_epi64(z0z0z1z1[0], z0z0z1z1[1]),
+            cast(avx._mm512_unpackhi_epi64(cast(z0z0z1z1[0]), cast(z0z0z1z1[1]))),
         ]
     }
 
     #[inline(always)]
-    fn permute2_epu32(self, w: [u32; 8]) -> __m512i {
+    fn permute2_u32x16(self, w: [u32; 8]) -> u32x16 {
         let avx = self.avx512f;
         let w = pulp::cast(w);
         let w01234567xxxxxxxx = avx._mm512_castsi256_si512(w);
         let idx = avx._mm512_setr_epi32(0, 0, 4, 4, 1, 1, 5, 5, 2, 2, 6, 6, 3, 3, 7, 7);
-        avx._mm512_permutexvar_epi32(idx, w01234567xxxxxxxx)
+        cast(avx._mm512_permutexvar_epi32(idx, w01234567xxxxxxxx))
     }
 
     #[inline(always)]
-    fn interleave1_epu32(self, z0z0z1z1: [__m512i; 2]) -> [__m512i; 2] {
+    fn interleave1_u32x16(self, z0z1: [u32x16; 2]) -> [u32x16; 2] {
         let avx = self.avx512f;
         let x = [
             // 00 10 01 11 04 14 05 15 08 18 09 19 0c 1c 0d 1d
-            avx._mm512_unpacklo_epi32(z0z0z1z1[0], z0z0z1z1[1]),
+            avx._mm512_unpacklo_epi32(cast(z0z1[0]), cast(z0z1[1])),
             // 02 12 03 13 06 16 07 17 0a 1a 0b 1b 0e 1e 0f 1f
-            avx._mm512_unpackhi_epi32(z0z0z1z1[0], z0z0z1z1[1]),
+            avx._mm512_unpackhi_epi32(cast(z0z1[0]), cast(z0z1[1])),
         ];
         [
             // 00 10 02 12 04 14 06 16 08 18 0a 1a 0c 1c 0c 1c
-            avx._mm512_unpacklo_epi64(x[0], x[1]),
+            cast(avx._mm512_unpacklo_epi64(x[0], x[1])),
             // 01 11 03 13 05 15 07 17 09 19 0b 1b 0d 1d 0f 1f
-            avx._mm512_unpackhi_epi64(x[0], x[1]),
+            cast(avx._mm512_unpackhi_epi64(x[0], x[1])),
         ]
     }
 
     #[inline(always)]
-    fn permute1_epu32(self, w: [u32; 16]) -> __m512i {
+    fn permute1_u32x16(self, w: [u32; 16]) -> u32x16 {
         let avx = self.avx512f;
         let w = pulp::cast(w);
         let idx = avx._mm512_setr_epi32(
             0x0, 0x8, 0x1, 0x9, 0x2, 0xa, 0x3, 0xb, 0x4, 0xc, 0x5, 0xd, 0x6, 0xe, 0x7, 0xf,
         );
-        avx._mm512_permutexvar_epi32(idx, w)
+        cast(avx._mm512_permutexvar_epi32(idx, w))
     }
 
     #[inline(always)]
-    pub fn small_mod_epu32(self, modulus: __m512i, x: __m512i) -> __m512i {
-        let avx = self.avx512f;
-        avx._mm512_mask_blend_epi32(
-            avx._mm512_cmpge_epu32_mask(x, modulus),
+    pub fn small_mod_u32x16(self, modulus: u32x16, x: u32x16) -> u32x16 {
+        self.select_u32x16(
+            self.cmp_gt_u32x16(modulus, x),
             x,
-            avx._mm512_sub_epi32(x, modulus),
+            self.wrapping_sub_u32x16(x, modulus),
         )
     }
 }
@@ -301,6 +312,9 @@ impl Plan {
     /// suitable roots of unity can be found for the wanted parameters.
     pub fn try_new(polynomial_size: usize, modulus: u32) -> Option<Self> {
         let p_div = Div32::new(modulus);
+        // 32 = 16x2 = max_register_size * ntt_radix,
+        // as SIMD registers can contain at most 16*u32
+        // and the implementation assumes that SIMD registers are full
         if polynomial_size < 32
             || find_primitive_root64(Div64::new(modulus as u64), 2 * polynomial_size as u64)
                 .is_none()
@@ -377,11 +391,11 @@ impl Plan {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 #[cfg(feature = "nightly")]
-                if let Some(simd) = crate::Avx512::try_new() {
+                if let Some(simd) = crate::V4::try_new() {
                     less_than_30bit::fwd_avx512(simd, p, buf, &self.twid, &self.twid_shoup);
                     return;
                 }
-                if let Some(simd) = crate::Avx2::try_new() {
+                if let Some(simd) = crate::V3::try_new() {
                     less_than_30bit::fwd_avx2(simd, p, buf, &self.twid, &self.twid_shoup);
                     return;
                 }
@@ -391,11 +405,11 @@ impl Plan {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 #[cfg(feature = "nightly")]
-                if let Some(simd) = crate::Avx512::try_new() {
+                if let Some(simd) = crate::V4::try_new() {
                     less_than_31bit::fwd_avx512(simd, p, buf, &self.twid, &self.twid_shoup);
                     return;
                 }
-                if let Some(simd) = crate::Avx2::try_new() {
+                if let Some(simd) = crate::V3::try_new() {
                     less_than_31bit::fwd_avx2(simd, p, buf, &self.twid, &self.twid_shoup);
                     return;
                 }
@@ -404,12 +418,12 @@ impl Plan {
         } else {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             #[cfg(feature = "nightly")]
-            if let Some(simd) = crate::Avx512::try_new() {
+            if let Some(simd) = crate::V4::try_new() {
                 generic::fwd_avx512(simd, buf, p, self.p_div, &self.twid);
                 return;
             }
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            if let Some(simd) = crate::Avx2::try_new() {
+            if let Some(simd) = crate::V3::try_new() {
                 generic::fwd_avx2(simd, buf, p, self.p_div, &self.twid);
                 return;
             }
@@ -430,11 +444,11 @@ impl Plan {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 #[cfg(feature = "nightly")]
-                if let Some(simd) = crate::Avx512::try_new() {
+                if let Some(simd) = crate::V4::try_new() {
                     less_than_30bit::inv_avx512(simd, p, buf, &self.inv_twid, &self.inv_twid_shoup);
                     return;
                 }
-                if let Some(simd) = crate::Avx2::try_new() {
+                if let Some(simd) = crate::V3::try_new() {
                     less_than_30bit::inv_avx2(simd, p, buf, &self.inv_twid, &self.inv_twid_shoup);
                     return;
                 }
@@ -444,11 +458,11 @@ impl Plan {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 #[cfg(feature = "nightly")]
-                if let Some(simd) = crate::Avx512::try_new() {
+                if let Some(simd) = crate::V4::try_new() {
                     less_than_31bit::inv_avx512(simd, p, buf, &self.inv_twid, &self.inv_twid_shoup);
                     return;
                 }
-                if let Some(simd) = crate::Avx2::try_new() {
+                if let Some(simd) = crate::V3::try_new() {
                     less_than_31bit::inv_avx2(simd, p, buf, &self.inv_twid, &self.inv_twid_shoup);
                     return;
                 }
@@ -457,12 +471,12 @@ impl Plan {
         } else {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             #[cfg(feature = "nightly")]
-            if let Some(simd) = crate::Avx512::try_new() {
+            if let Some(simd) = crate::V4::try_new() {
                 generic::inv_avx512(simd, buf, p, self.p_div, &self.inv_twid);
                 return;
             }
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            if let Some(simd) = crate::Avx2::try_new() {
+            if let Some(simd) = crate::V3::try_new() {
                 generic::inv_avx2(simd, buf, p, self.p_div, &self.inv_twid);
                 return;
             }
@@ -476,90 +490,81 @@ impl Plan {
         if self.p < (1 << 31) {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             #[cfg(feature = "nightly")]
-            if let Some(simd) = crate::Avx512::try_new() {
+            if let Some(simd) = crate::V4::try_new() {
                 simd.vectorize(
                     #[inline(always)]
                     move || {
-                        use pulp::cast;
-
-                        let avx = simd.avx512f;
                         let lhs = pulp::as_arrays_mut::<16, _>(lhs).0;
                         let rhs = pulp::as_arrays::<16, _>(rhs).0;
-                        let big_q_m1 = avx._mm512_set1_epi32((self.big_q - 1) as i32);
-                        let big_q_m1_complement =
-                            avx._mm512_set1_epi32((32 - (self.big_q - 1)) as i32);
-                        let n_inv_mod_p = avx._mm512_set1_epi32(self.n_inv_mod_p as i32);
-                        let n_inv_mod_p_shoup =
-                            avx._mm512_set1_epi32(self.n_inv_mod_p_shoup as i32);
-                        let p_barrett = avx._mm512_set1_epi32(self.p_barrett as i32);
-                        let p = avx._mm512_set1_epi32(self.p as i32);
+                        let big_q_m1 = simd.splat_u32x16(self.big_q - 1);
+                        let big_q_m1_complement = simd.splat_u32x16(32 - (self.big_q - 1));
+                        let n_inv_mod_p = simd.splat_u32x16(self.n_inv_mod_p);
+                        let n_inv_mod_p_shoup = simd.splat_u32x16(self.n_inv_mod_p_shoup);
+                        let p_barrett = simd.splat_u32x16(self.p_barrett);
+                        let p = simd.splat_u32x16(self.p);
 
-                        for (__lhs, rhs) in crate::izip!(lhs, rhs) {
-                            let lhs = cast(*__lhs);
+                        for (lhs_, rhs) in crate::izip!(lhs, rhs) {
+                            let lhs = cast(*lhs_);
                             let rhs = cast(*rhs);
 
                             // lhs × rhs
-                            let (lo, hi) = simd._mm512_mul_u32_u32_epu32(lhs, rhs);
-                            let c1 = avx._mm512_or_si512(
-                                avx._mm512_srlv_epi32(lo, big_q_m1),
-                                avx._mm512_sllv_epi32(hi, big_q_m1_complement),
+                            let (lo, hi) = simd.widening_mul_u32x16(lhs, rhs);
+                            let c1 = simd.or_u32x16(
+                                simd.shr_dyn_u32x16(lo, big_q_m1),
+                                simd.shl_dyn_u32x16(hi, big_q_m1_complement),
                             );
-                            let c3 = simd._mm512_mul_u32_u32_epu32(c1, p_barrett).1;
-                            let prod = avx._mm512_sub_epi32(lo, avx._mm512_mullo_epi32(p, c3));
+                            let c3 = simd.widening_mul_u32x16(c1, p_barrett).1;
+                            let prod =
+                                simd.wrapping_sub_u32x16(lo, simd.wrapping_mul_u32x16(p, c3));
 
                             // normalization
-                            let shoup_q = simd._mm512_mul_u32_u32_epu32(prod, n_inv_mod_p_shoup).1;
-                            let t = avx._mm512_sub_epi32(
-                                avx._mm512_mullo_epi32(prod, n_inv_mod_p),
-                                avx._mm512_mullo_epi32(shoup_q, p),
+                            let shoup_q = simd.widening_mul_u32x16(prod, n_inv_mod_p_shoup).1;
+                            let t = simd.wrapping_sub_u32x16(
+                                simd.wrapping_mul_u32x16(prod, n_inv_mod_p),
+                                simd.wrapping_mul_u32x16(shoup_q, p),
                             );
 
-                            *__lhs = cast(simd.small_mod_epu32(p, t));
+                            *lhs_ = cast(simd.small_mod_u32x16(p, t));
                         }
                     },
                 );
                 return;
             }
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            if let Some(simd) = crate::Avx2::try_new() {
+            if let Some(simd) = crate::V3::try_new() {
                 simd.vectorize(
                     #[inline(always)]
                     move || {
-                        use pulp::cast;
-
-                        let avx = simd.avx2;
                         let lhs = pulp::as_arrays_mut::<8, _>(lhs).0;
                         let rhs = pulp::as_arrays::<8, _>(rhs).0;
-                        let big_q_m1 = simd.avx._mm256_set1_epi32((self.big_q - 1) as i32);
-                        let big_q_m1_complement =
-                            simd.avx._mm256_set1_epi32((32 - (self.big_q - 1)) as i32);
-                        let n_inv_mod_p = simd.avx._mm256_set1_epi32(self.n_inv_mod_p as i32);
-                        let n_inv_mod_p_shoup =
-                            simd.avx._mm256_set1_epi32(self.n_inv_mod_p_shoup as i32);
-                        let p_barrett = simd.avx._mm256_set1_epi32(self.p_barrett as i32);
-                        let p = simd.avx._mm256_set1_epi32(self.p as i32);
+                        let big_q_m1 = simd.splat_u32x8(self.big_q - 1);
+                        let big_q_m1_complement = simd.splat_u32x8(32 - (self.big_q - 1));
+                        let n_inv_mod_p = simd.splat_u32x8(self.n_inv_mod_p);
+                        let n_inv_mod_p_shoup = simd.splat_u32x8(self.n_inv_mod_p_shoup);
+                        let p_barrett = simd.splat_u32x8(self.p_barrett);
+                        let p = simd.splat_u32x8(self.p);
 
-                        for (__lhs, rhs) in crate::izip!(lhs, rhs) {
-                            let lhs = cast(*__lhs);
+                        for (lhs_, rhs) in crate::izip!(lhs, rhs) {
+                            let lhs = cast(*lhs_);
                             let rhs = cast(*rhs);
 
                             // lhs × rhs
-                            let (lo, hi) = simd._mm256_mul_u32_u32_epu32(lhs, rhs);
-                            let c1 = avx._mm256_or_si256(
-                                avx._mm256_srlv_epi32(lo, big_q_m1),
-                                avx._mm256_sllv_epi32(hi, big_q_m1_complement),
+                            let (lo, hi) = simd.widening_mul_u32x8(lhs, rhs);
+                            let c1 = simd.or_u32x8(
+                                simd.shr_dyn_u32x8(lo, big_q_m1),
+                                simd.shl_dyn_u32x8(hi, big_q_m1_complement),
                             );
-                            let c3 = simd._mm256_mul_u32_u32_epu32(c1, p_barrett).1;
-                            let prod = avx._mm256_sub_epi32(lo, avx._mm256_mullo_epi32(p, c3));
+                            let c3 = simd.widening_mul_u32x8(c1, p_barrett).1;
+                            let prod = simd.wrapping_sub_u32x8(lo, simd.wrapping_mul_u32x8(p, c3));
 
                             // normalization
-                            let shoup_q = simd._mm256_mul_u32_u32_epu32(prod, n_inv_mod_p_shoup).1;
-                            let t = avx._mm256_sub_epi32(
-                                avx._mm256_mullo_epi32(prod, n_inv_mod_p),
-                                avx._mm256_mullo_epi32(shoup_q, p),
+                            let shoup_q = simd.widening_mul_u32x8(prod, n_inv_mod_p_shoup).1;
+                            let t = simd.wrapping_sub_u32x8(
+                                simd.wrapping_mul_u32x8(prod, n_inv_mod_p),
+                                simd.wrapping_mul_u32x8(shoup_q, p),
                             );
 
-                            *__lhs = cast(simd.small_mod_epu32(p, t));
+                            *lhs_ = cast(simd.small_mod_u32x8(p, t));
                         }
                     },
                 );
@@ -572,8 +577,8 @@ impl Plan {
             let p_barrett = self.p_barrett;
             let p = self.p;
 
-            for (__lhs, rhs) in crate::izip!(lhs, rhs) {
-                let lhs = *__lhs;
+            for (lhs_, rhs) in crate::izip!(lhs, rhs) {
+                let lhs = *lhs_;
                 let rhs = *rhs;
 
                 let d = lhs as u64 * rhs as u64;
@@ -584,32 +589,33 @@ impl Plan {
                 let shoup_q = (((prod as u64) * (n_inv_mod_p_shoup as u64)) >> 32) as u32;
                 let t = u32::wrapping_sub(prod.wrapping_mul(n_inv_mod_p), shoup_q.wrapping_mul(p));
 
-                *__lhs = t.min(t.wrapping_sub(p));
+                *lhs_ = t.min(t.wrapping_sub(p));
             }
         } else {
             let p_div = self.p_div;
             let n_inv_mod_p = self.n_inv_mod_p;
-            for (__lhs, rhs) in crate::izip!(lhs, rhs) {
-                let lhs = *__lhs;
+            for (lhs_, rhs) in crate::izip!(lhs, rhs) {
+                let lhs = *lhs_;
                 let rhs = *rhs;
                 let prod = Div32::rem_u64(lhs as u64 * rhs as u64, p_div);
                 let prod = Div32::rem_u64(prod as u64 * n_inv_mod_p as u64, p_div);
-                *__lhs = prod;
+                *lhs_ = prod;
             }
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::prime::largest_prime_in_arithmetic_progression64;
     use alloc::vec;
     use rand::random;
 
-    #[inline(always)]
-    fn add(p: u32, a: u32, b: u32) -> u32 {
-        let neg_b = p - b;
+    extern crate alloc;
+
+    pub fn add(p: u32, a: u32, b: u32) -> u32 {
+        let neg_b = p.wrapping_sub(b);
         if a >= neg_b {
             a - neg_b
         } else {
@@ -617,9 +623,8 @@ mod tests {
         }
     }
 
-    #[inline(always)]
-    fn sub(p: u32, a: u32, b: u32) -> u32 {
-        let neg_b = p - b;
+    pub fn sub(p: u32, a: u32, b: u32) -> u32 {
+        let neg_b = p.wrapping_sub(b);
         if a >= b {
             a - b
         } else {
@@ -627,12 +632,55 @@ mod tests {
         }
     }
 
-    #[inline(always)]
-    fn mul(p: u32, a: u32, b: u32) -> u32 {
-        ((a as u64 * b as u64) % p as u64) as u32
+    pub fn mul(p: u32, a: u32, b: u32) -> u32 {
+        let wide = a as u64 * b as u64;
+        if p == 0 {
+            wide as u32
+        } else {
+            (wide % p as u64) as u32
+        }
     }
 
-    extern crate alloc;
+    pub fn negacyclic_convolution(n: usize, p: u32, lhs: &[u32], rhs: &[u32]) -> Vec<u32> {
+        let mut full_convolution = vec![0u32; 2 * n];
+        let mut negacyclic_convolution = vec![0u32; n];
+        for i in 0..n {
+            for j in 0..n {
+                full_convolution[i + j] = add(p, full_convolution[i + j], mul(p, lhs[i], rhs[j]));
+            }
+        }
+        for i in 0..n {
+            negacyclic_convolution[i] = sub(p, full_convolution[i], full_convolution[i + n]);
+        }
+        negacyclic_convolution
+    }
+
+    pub fn random_lhs_rhs_with_negacyclic_convolution(
+        n: usize,
+        p: u32,
+    ) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
+        let mut lhs = vec![0u32; n];
+        let mut rhs = vec![0u32; n];
+
+        for x in &mut lhs {
+            *x = random();
+            if p != 0 {
+                *x %= p;
+            }
+        }
+        for x in &mut rhs {
+            *x = random();
+            if p != 0 {
+                *x %= p;
+            }
+        }
+
+        let lhs = lhs;
+        let rhs = rhs;
+
+        let negacyclic_convolution = negacyclic_convolution(n, p, &lhs, &rhs);
+        (lhs, rhs, negacyclic_convolution)
+    }
 
     #[test]
     fn test_product() {
@@ -645,33 +693,8 @@ mod tests {
                 let p = p as u32;
                 let plan = Plan::try_new(n, p).unwrap();
 
-                let mut lhs = vec![0u32; n];
-                let mut rhs = vec![0u32; n];
-
-                for x in &mut lhs {
-                    *x = random();
-                    *x %= p;
-                }
-                for x in &mut rhs {
-                    *x = random();
-                    *x %= p;
-                }
-
-                let lhs = lhs;
-                let rhs = rhs;
-
-                let mut full_convolution = vec![0u32; 2 * n];
-                let mut negacyclic_convolution = vec![0u32; n];
-                for i in 0..n {
-                    for j in 0..n {
-                        full_convolution[i + j] =
-                            add(p, full_convolution[i + j], mul(p, lhs[i], rhs[j]));
-                    }
-                }
-                for i in 0..n {
-                    negacyclic_convolution[i] =
-                        sub(p, full_convolution[i], full_convolution[i + n]);
-                }
+                let (lhs, rhs, negacyclic_convolution) =
+                    random_lhs_rhs_with_negacyclic_convolution(n, p);
 
                 let mut prod = vec![0u32; n];
                 let mut lhs_fourier = lhs.clone();
@@ -704,6 +727,188 @@ mod tests {
                 }
                 assert_eq!(lhs_fourier, negacyclic_convolution);
             }
+        }
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(test)]
+mod x86_tests {
+    use super::*;
+    use rand::random as rnd;
+
+    #[test]
+    fn test_interleaves_and_permutes_u32x8() {
+        if let Some(simd) = crate::V3::try_new() {
+            let a = u32x8(rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd());
+            let b = u32x8(rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd());
+
+            assert_eq!(
+                simd.interleave4_u32x8([a, b]),
+                [
+                    u32x8(a.0, a.1, a.2, a.3, b.0, b.1, b.2, b.3),
+                    u32x8(a.4, a.5, a.6, a.7, b.4, b.5, b.6, b.7),
+                ],
+            );
+            assert_eq!(
+                simd.interleave4_u32x8(simd.interleave4_u32x8([a, b])),
+                [a, b],
+            );
+            let w = [rnd(), rnd()];
+            assert_eq!(
+                simd.permute4_u32x8(w),
+                u32x8(w[0], w[0], w[0], w[0], w[1], w[1], w[1], w[1]),
+            );
+
+            assert_eq!(
+                simd.interleave2_u32x8([a, b]),
+                [
+                    u32x8(a.0, a.1, b.0, b.1, a.4, a.5, b.4, b.5),
+                    u32x8(a.2, a.3, b.2, b.3, a.6, a.7, b.6, b.7),
+                ],
+            );
+            assert_eq!(
+                simd.interleave2_u32x8(simd.interleave2_u32x8([a, b])),
+                [a, b],
+            );
+            let w = [rnd(), rnd(), rnd(), rnd()];
+            assert_eq!(
+                simd.permute2_u32x8(w),
+                u32x8(w[0], w[0], w[2], w[2], w[1], w[1], w[3], w[3]),
+            );
+
+            assert_eq!(
+                simd.interleave1_u32x8([a, b]),
+                [
+                    u32x8(a.0, b.0, a.2, b.2, a.4, b.4, a.6, b.6),
+                    u32x8(a.1, b.1, a.3, b.3, a.5, b.5, a.7, b.7),
+                ],
+            );
+            assert_eq!(
+                simd.interleave1_u32x8(simd.interleave1_u32x8([a, b])),
+                [a, b],
+            );
+            let w = [rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd()];
+            assert_eq!(
+                simd.permute1_u32x8(w),
+                u32x8(w[0], w[4], w[1], w[5], w[2], w[6], w[3], w[7]),
+            );
+        }
+    }
+
+    #[cfg(feature = "nightly")]
+    #[test]
+    fn test_interleaves_and_permutes_u32x16() {
+        if let Some(simd) = crate::V4::try_new() {
+            #[rustfmt::skip]
+            let a = u32x16(rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd());
+            #[rustfmt::skip]
+            let b = u32x16(rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd());
+
+            assert_eq!(
+                simd.interleave8_u32x16([a, b]),
+                [
+                    u32x16(
+                        a.0, a.1, a.2, a.3, a.4, a.5, a.6, a.7, b.0, b.1, b.2, b.3, b.4, b.5, b.6,
+                        b.7,
+                    ),
+                    u32x16(
+                        a.8, a.9, a.10, a.11, a.12, a.13, a.14, a.15, b.8, b.9, b.10, b.11, b.12,
+                        b.13, b.14, b.15,
+                    ),
+                ],
+            );
+            assert_eq!(
+                simd.interleave8_u32x16(simd.interleave8_u32x16([a, b])),
+                [a, b],
+            );
+            let w = [rnd(), rnd()];
+            assert_eq!(
+                simd.permute8_u32x16(w),
+                u32x16(
+                    w[0], w[0], w[0], w[0], w[0], w[0], w[0], w[0], w[1], w[1], w[1], w[1], w[1],
+                    w[1], w[1], w[1],
+                ),
+            );
+
+            assert_eq!(
+                simd.interleave4_u32x16([a, b]),
+                [
+                    u32x16(
+                        a.0, a.1, a.2, a.3, b.0, b.1, b.2, b.3, a.8, a.9, a.10, a.11, b.8, b.9,
+                        b.10, b.11,
+                    ),
+                    u32x16(
+                        a.4, a.5, a.6, a.7, b.4, b.5, b.6, b.7, a.12, a.13, a.14, a.15, b.12, b.13,
+                        b.14, b.15,
+                    ),
+                ],
+            );
+            assert_eq!(
+                simd.interleave4_u32x16(simd.interleave4_u32x16([a, b])),
+                [a, b],
+            );
+            let w = [rnd(), rnd(), rnd(), rnd()];
+            assert_eq!(
+                simd.permute4_u32x16(w),
+                u32x16(
+                    w[0], w[0], w[0], w[0], w[2], w[2], w[2], w[2], w[1], w[1], w[1], w[1], w[3],
+                    w[3], w[3], w[3],
+                ),
+            );
+
+            assert_eq!(
+                simd.interleave2_u32x16([a, b]),
+                [
+                    u32x16(
+                        a.0, a.1, b.0, b.1, a.4, a.5, b.4, b.5, a.8, a.9, b.8, b.9, a.12, a.13,
+                        b.12, b.13,
+                    ),
+                    u32x16(
+                        a.2, a.3, b.2, b.3, a.6, a.7, b.6, b.7, a.10, a.11, b.10, b.11, a.14, a.15,
+                        b.14, b.15,
+                    ),
+                ],
+            );
+            assert_eq!(
+                simd.interleave2_u32x16(simd.interleave2_u32x16([a, b])),
+                [a, b],
+            );
+            let w = [rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd()];
+            assert_eq!(
+                simd.permute2_u32x16(w),
+                u32x16(
+                    w[0], w[0], w[4], w[4], w[1], w[1], w[5], w[5], w[2], w[2], w[6], w[6], w[3],
+                    w[3], w[7], w[7],
+                ),
+            );
+
+            assert_eq!(
+                simd.interleave1_u32x16([a, b]),
+                [
+                    u32x16(
+                        a.0, b.0, a.2, b.2, a.4, b.4, a.6, b.6, a.8, b.8, a.10, b.10, a.12, b.12,
+                        a.14, b.14,
+                    ),
+                    u32x16(
+                        a.1, b.1, a.3, b.3, a.5, b.5, a.7, b.7, a.9, b.9, a.11, b.11, a.13, b.13,
+                        a.15, b.15,
+                    ),
+                ],
+            );
+            assert_eq!(
+                simd.interleave1_u32x16(simd.interleave1_u32x16([a, b])),
+                [a, b],
+            );
+            #[rustfmt::skip]
+            let w = [rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd()];
+            assert_eq!(
+                simd.permute1_u32x16(w),
+                u32x16(
+                    w[0], w[8], w[1], w[9], w[2], w[10], w[3], w[11], w[4], w[12], w[5], w[13],
+                    w[6], w[14], w[7], w[15],
+                ),
+            );
         }
     }
 }

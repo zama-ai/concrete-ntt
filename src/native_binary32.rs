@@ -1,9 +1,9 @@
-use crate::native32::mul_mod32;
 use aligned_vec::avec;
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
-#[cfg(target_arch = "x86_64")]
-use core::arch::x86_64::*;
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+use pulp::x86::*;
+
+use crate::native32::mul_mod32;
 
 /// Negacyclic NTT plan for multiplying two 32bit polynomials, where the RHS contains binary
 /// coefficients.
@@ -14,12 +14,12 @@ pub struct Plan32(crate::prime32::Plan, crate::prime32::Plan);
 /// coefficients.  
 /// This can be more efficient than [`Plan32`], but requires the AVX512 instruction set.
 #[cfg(any(
-    doc,
+    all(feature = "nightly", doc),
     all(feature = "nightly", any(target_arch = "x86", target_arch = "x86_64"))
 ))]
 #[cfg_attr(docsrs, doc(cfg(feature = "nightly")))]
 #[derive(Clone, Debug)]
-pub struct Plan52(crate::prime64::Plan, crate::Avx512);
+pub struct Plan52(crate::prime64::Plan, crate::V4IFma);
 
 #[inline(always)]
 pub(crate) fn reconstruct_32bit_01(mod_p0: u32, mod_p1: u32) -> u32 {
@@ -45,101 +45,91 @@ pub(crate) fn reconstruct_32bit_01(mod_p0: u32, mod_p1: u32) -> u32 {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
-pub(crate) fn reconstruct_32bit_01_avx2(
-    simd: crate::Avx2,
-    mod_p0: __m256i,
-    mod_p1: __m256i,
-) -> __m256i {
+pub(crate) fn reconstruct_32bit_01_avx2(simd: crate::V3, mod_p0: u32x8, mod_p1: u32x8) -> u32x8 {
     use crate::{native32::mul_mod32_avx2, primes32::*};
 
-    let avx = simd.avx2;
+    let p0 = simd.splat_u32x8(P0);
+    let p1 = simd.splat_u32x8(P1);
+    let two_p1 = simd.splat_u32x8(2 * P1);
+    let half_p1 = simd.splat_u32x8(P1 / 2);
 
-    let p0 = simd.avx._mm256_set1_epi32(P0 as i32);
-    let p1 = simd.avx._mm256_set1_epi32(P1 as i32);
-    let two_p1 = simd.avx._mm256_set1_epi32((2 * P1) as i32);
-    let half_p1 = simd.avx._mm256_set1_epi32((P1 / 2) as i32);
+    let p0_inv_mod_p1 = simd.splat_u32x8(P0_INV_MOD_P1);
+    let p0_inv_mod_p1_shoup = simd.splat_u32x8(P0_INV_MOD_P1_SHOUP);
 
-    let p0_inv_mod_p1 = simd.avx._mm256_set1_epi32(P0_INV_MOD_P1 as i32);
-    let p0_inv_mod_p1_shoup = simd.avx._mm256_set1_epi32(P0_INV_MOD_P1_SHOUP as i32);
-
-    let p01 = simd.avx._mm256_set1_epi32(P0.wrapping_mul(P1) as i32);
+    let p01 = simd.splat_u32x8(P0.wrapping_mul(P1));
 
     let v0 = mod_p0;
     let v1 = mul_mod32_avx2(
         simd,
         p1,
-        avx._mm256_sub_epi32(avx._mm256_add_epi32(two_p1, mod_p1), v0),
+        simd.wrapping_sub_u32x8(simd.wrapping_add_u32x8(two_p1, mod_p1), v0),
         p0_inv_mod_p1,
         p0_inv_mod_p1_shoup,
     );
 
-    let sign = simd._mm256_cmpgt_epu32(v1, half_p1);
-    let pos = avx._mm256_add_epi32(v0, avx._mm256_mullo_epi32(v1, p0));
+    let sign = simd.cmp_gt_u32x8(v1, half_p1);
+    let pos = simd.wrapping_add_u32x8(v0, simd.wrapping_mul_u32x8(v1, p0));
 
-    let neg = avx._mm256_sub_epi32(pos, p01);
+    let neg = simd.wrapping_sub_u32x8(pos, p01);
 
-    avx._mm256_blendv_epi8(pos, neg, sign)
+    simd.select_u32x8(sign, neg, pos)
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 #[inline(always)]
-fn reconstruct_32bit_01_avx512(simd: crate::Avx512, mod_p0: __m512i, mod_p1: __m512i) -> __m512i {
+fn reconstruct_32bit_01_avx512(simd: crate::V4IFma, mod_p0: u32x16, mod_p1: u32x16) -> u32x16 {
     use crate::{native32::mul_mod32_avx512, primes32::*};
 
-    let avx = simd.avx512f;
+    let p0 = simd.splat_u32x16(P0);
+    let p1 = simd.splat_u32x16(P1);
+    let two_p1 = simd.splat_u32x16(2 * P1);
+    let half_p1 = simd.splat_u32x16(P1 / 2);
 
-    let p0 = avx._mm512_set1_epi32(P0 as i32);
-    let p1 = avx._mm512_set1_epi32(P1 as i32);
-    let two_p1 = avx._mm512_set1_epi32((2 * P1) as i32);
-    let half_p1 = avx._mm512_set1_epi32((P1 / 2) as i32);
+    let p0_inv_mod_p1 = simd.splat_u32x16(P0_INV_MOD_P1);
+    let p0_inv_mod_p1_shoup = simd.splat_u32x16(P0_INV_MOD_P1_SHOUP);
 
-    let p0_inv_mod_p1 = avx._mm512_set1_epi32(P0_INV_MOD_P1 as i32);
-    let p0_inv_mod_p1_shoup = avx._mm512_set1_epi32(P0_INV_MOD_P1_SHOUP as i32);
-
-    let p01 = avx._mm512_set1_epi32(P0.wrapping_mul(P1) as i32);
+    let p01 = simd.splat_u32x16(P0.wrapping_mul(P1));
 
     let v0 = mod_p0;
     let v1 = mul_mod32_avx512(
         simd,
         p1,
-        avx._mm512_sub_epi32(avx._mm512_add_epi32(two_p1, mod_p1), v0),
+        simd.wrapping_sub_u32x16(simd.wrapping_add_u32x16(two_p1, mod_p1), v0),
         p0_inv_mod_p1,
         p0_inv_mod_p1_shoup,
     );
 
-    let sign = avx._mm512_cmpgt_epu32_mask(v1, half_p1);
-    let pos = avx._mm512_add_epi32(v0, avx._mm512_mullo_epi32(v1, p0));
+    let sign = simd.cmp_gt_u32x16(v1, half_p1);
+    let pos = simd.wrapping_add_u32x16(v0, simd.wrapping_mul_u32x16(v1, p0));
 
-    let neg = avx._mm512_sub_epi32(pos, p01);
+    let neg = simd.wrapping_sub_u32x16(pos, p01);
 
-    avx._mm512_mask_blend_epi32(sign, pos, neg)
+    simd.select_u32x16(sign, neg, pos)
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 #[inline(always)]
-fn reconstruct_52bit_0_avx512(simd: crate::Avx512, mod_p0: __m512i) -> __m256i {
+fn reconstruct_52bit_0_avx512(simd: crate::V4IFma, mod_p0: u64x8) -> u32x8 {
     use crate::primes52::*;
 
-    let avx = simd.avx512f;
-
-    let p0 = avx._mm512_set1_epi64(P0 as i64);
-    let half_p0 = avx._mm512_set1_epi64((P0 / 2) as i64);
+    let p0 = simd.splat_u64x8(P0);
+    let half_p0 = simd.splat_u64x8(P0 / 2);
 
     let v0 = mod_p0;
 
-    let sign = avx._mm512_cmpgt_epu64_mask(v0, half_p0);
+    let sign = simd.cmp_gt_u64x8(v0, half_p0);
 
     let pos = v0;
-    let neg = avx._mm512_sub_epi64(pos, p0);
+    let neg = simd.wrapping_sub_u64x8(pos, p0);
 
-    avx._mm512_cvtepi64_epi32(avx._mm512_mask_blend_epi64(sign, pos, neg))
+    simd.convert_u64x8_to_u32x8(simd.select_u64x8(sign, neg, pos))
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn reconstruct_slice_32bit_01_avx2(
-    simd: crate::Avx2,
+    simd: crate::V3,
     value: &mut [u32],
     mod_p0: &[u32],
     mod_p1: &[u32],
@@ -161,7 +151,7 @@ fn reconstruct_slice_32bit_01_avx2(
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 fn reconstruct_slice_32bit_01_avx512(
-    simd: crate::Avx512,
+    simd: crate::V4IFma,
     value: &mut [u32],
     mod_p0: &[u32],
     mod_p1: &[u32],
@@ -186,7 +176,7 @@ fn reconstruct_slice_32bit_01_avx512(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-fn reconstruct_slice_52bit_0_avx512(simd: crate::Avx512, value: &mut [u32], mod_p0: &[u64]) {
+fn reconstruct_slice_52bit_0_avx512(simd: crate::V4IFma, value: &mut [u32], mod_p0: &[u64]) {
     simd.vectorize(
         #[inline(always)]
         move || {
@@ -239,11 +229,11 @@ impl Plan32 {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
             #[cfg(feature = "nightly")]
-            if let Some(simd) = crate::Avx512::try_new() {
+            if let Some(simd) = crate::V4IFma::try_new() {
                 reconstruct_slice_32bit_01_avx512(simd, value, mod_p0, mod_p1);
                 return;
             }
-            if let Some(simd) = crate::Avx2::try_new() {
+            if let Some(simd) = crate::V3::try_new() {
                 reconstruct_slice_32bit_01_avx2(simd, value, mod_p0, mod_p1);
                 return;
             }
@@ -285,7 +275,7 @@ impl Plan52 {
     /// instruction set isn't detected.
     pub fn try_new(n: usize) -> Option<Self> {
         use crate::{prime64::Plan, primes52::*};
-        let simd = crate::Avx512::try_new()?;
+        let simd = crate::V4IFma::try_new()?;
         Some(Self(Plan::try_new(n, P0)?, simd))
     }
 
@@ -315,12 +305,7 @@ impl Plan52 {
         self.0.inv(mod_p0);
 
         let simd = self.1;
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                reconstruct_slice_52bit_0_avx512(simd, value, mod_p0);
-            },
-        )
+        reconstruct_slice_52bit_0_avx512(simd, value, mod_p0);
     }
 
     /// Computes the negacyclic polynomial product of `lhs` and `rhs`, and stores the result in
@@ -345,10 +330,11 @@ impl Plan52 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prime32::tests::negacyclic_convolution;
+    use alloc::{vec, vec::Vec};
     use rand::random;
 
     extern crate alloc;
-    use alloc::{vec, vec::Vec};
 
     #[test]
     fn reconstruct_32bit() {
@@ -357,18 +343,7 @@ mod tests {
 
             let lhs = (0..n).map(|_| random::<u32>()).collect::<Vec<_>>();
             let rhs = (0..n).map(|_| random::<u32>() % 2).collect::<Vec<_>>();
-            let mut full_convolution = vec![0u32; 2 * n];
-            let mut negacyclic_convolution = vec![0u32; n];
-            for i in 0..n {
-                for j in 0..n {
-                    full_convolution[i + j] =
-                        full_convolution[i + j].wrapping_add(lhs[i].wrapping_mul(rhs[j]));
-                }
-            }
-            for i in 0..n {
-                negacyclic_convolution[i] =
-                    full_convolution[i].wrapping_sub(full_convolution[i + n]);
-            }
+            let negacyclic_convolution = negacyclic_convolution(n, 0, &lhs, &rhs);
 
             let mut prod = vec![0; n];
             plan.negacyclic_polymul(&mut prod, &lhs, &rhs);
@@ -384,18 +359,7 @@ mod tests {
             if let Some(plan) = Plan52::try_new(n) {
                 let lhs = (0..n).map(|_| random::<u32>()).collect::<Vec<_>>();
                 let rhs = (0..n).map(|_| random::<u32>() % 2).collect::<Vec<_>>();
-                let mut full_convolution = vec![0u32; 2 * n];
-                let mut negacyclic_convolution = vec![0u32; n];
-                for i in 0..n {
-                    for j in 0..n {
-                        full_convolution[i + j] =
-                            full_convolution[i + j].wrapping_add(lhs[i].wrapping_mul(rhs[j]));
-                    }
-                }
-                for i in 0..n {
-                    negacyclic_convolution[i] =
-                        full_convolution[i].wrapping_sub(full_convolution[i + n]);
-                }
+                let negacyclic_convolution = negacyclic_convolution(n, 0, &lhs, &rhs);
 
                 let mut prod = vec![0; n];
                 plan.negacyclic_polymul(&mut prod, &lhs, &rhs);

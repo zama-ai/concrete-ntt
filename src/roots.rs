@@ -27,7 +27,7 @@ pub const fn get_z64(p: Div64) -> Option<u64> {
     None
 }
 
-/// https://en.wikipedia.org/wiki/Tonelli-Shanks_algorithm#The_algorithm
+/// <https://en.wikipedia.org/wiki/Tonelli-Shanks_algorithm#The_algorithm>
 pub const fn sqrt_mod_ex64(p: Div64, q: u64, s: u64, z: u64, n: u64) -> Option<u64> {
     let mut m = s;
     let mut c = exp_mod64(p, z, q);

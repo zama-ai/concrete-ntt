@@ -1,38 +1,30 @@
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use crate::Avx2;
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[cfg(feature = "nightly")]
-use crate::Avx512;
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
-#[cfg(target_arch = "x86_64")]
-use core::arch::x86_64::*;
+use pulp::x86::*;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 #[inline(always)]
 pub(crate) fn fwd_butterfly_avx512(
-    simd: Avx512,
-    z0: __m512i,
-    z1: __m512i,
-    w: __m512i,
-    w_shoup: __m512i,
-    p: __m512i,
-    neg_p: __m512i,
-    two_p: __m512i,
-) -> (__m512i, __m512i) {
+    simd: crate::V4,
+    z0: u32x16,
+    z1: u32x16,
+    w: u32x16,
+    w_shoup: u32x16,
+    p: u32x16,
+    neg_p: u32x16,
+    two_p: u32x16,
+) -> (u32x16, u32x16) {
     let _ = two_p;
-    let avx = simd.avx512f;
-    let z0 = simd.small_mod_epu32(p, z0);
-    let shoup_q = simd._mm512_mul_u32_u32_epu32(z1, w_shoup).1;
-    let t = avx._mm512_add_epi32(
-        avx._mm512_mullo_epi32(z1, w),
-        avx._mm512_mullo_epi32(shoup_q, neg_p),
+    let z0 = simd.small_mod_u32x16(p, z0);
+    let shoup_q = simd.widening_mul_u32x16(z1, w_shoup).1;
+    let t = simd.wrapping_add_u32x16(
+        simd.wrapping_mul_u32x16(z1, w),
+        simd.wrapping_mul_u32x16(shoup_q, neg_p),
     );
-    let t = simd.small_mod_epu32(p, t);
+    let t = simd.small_mod_u32x16(p, t);
     (
-        avx._mm512_add_epi32(z0, t),
-        avx._mm512_add_epi32(avx._mm512_sub_epi32(z0, t), p),
+        simd.wrapping_add_u32x16(z0, t),
+        simd.wrapping_add_u32x16(simd.wrapping_sub_u32x16(z0, t), p),
     )
 }
 
@@ -40,81 +32,84 @@ pub(crate) fn fwd_butterfly_avx512(
 #[cfg(feature = "nightly")]
 #[inline(always)]
 pub(crate) fn fwd_last_butterfly_avx512(
-    simd: Avx512,
-    z0: __m512i,
-    z1: __m512i,
-    w: __m512i,
-    w_shoup: __m512i,
-    p: __m512i,
-    neg_p: __m512i,
-    two_p: __m512i,
-) -> (__m512i, __m512i) {
+    simd: crate::V4,
+    z0: u32x16,
+    z1: u32x16,
+    w: u32x16,
+    w_shoup: u32x16,
+    p: u32x16,
+    neg_p: u32x16,
+    two_p: u32x16,
+) -> (u32x16, u32x16) {
     let _ = two_p;
-    let avx = simd.avx512f;
-    let z0 = simd.small_mod_epu32(p, z0);
-    let shoup_q = simd._mm512_mul_u32_u32_epu32(z1, w_shoup).1;
-    let t = avx._mm512_add_epi32(
-        avx._mm512_mullo_epi32(z1, w),
-        avx._mm512_mullo_epi32(shoup_q, neg_p),
+    let z0 = simd.small_mod_u32x16(p, z0);
+    let shoup_q = simd.widening_mul_u32x16(z1, w_shoup).1;
+    let t = simd.wrapping_add_u32x16(
+        simd.wrapping_mul_u32x16(z1, w),
+        simd.wrapping_mul_u32x16(shoup_q, neg_p),
     );
-    let t = simd.small_mod_epu32(p, t);
+    let t = simd.small_mod_u32x16(p, t);
     (
-        simd.small_mod_epu32(p, avx._mm512_add_epi32(z0, t)),
-        simd.small_mod_epu32(p, avx._mm512_add_epi32(avx._mm512_sub_epi32(z0, t), p)),
+        simd.small_mod_u32x16(p, simd.wrapping_add_u32x16(z0, t)),
+        simd.small_mod_u32x16(
+            p,
+            simd.wrapping_add_u32x16(simd.wrapping_sub_u32x16(z0, t), p),
+        ),
     )
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
 pub(crate) fn fwd_butterfly_avx2(
-    simd: Avx2,
-    z0: __m256i,
-    z1: __m256i,
-    w: __m256i,
-    w_shoup: __m256i,
-    p: __m256i,
-    neg_p: __m256i,
-    two_p: __m256i,
-) -> (__m256i, __m256i) {
+    simd: crate::V3,
+    z0: u32x8,
+    z1: u32x8,
+    w: u32x8,
+    w_shoup: u32x8,
+    p: u32x8,
+    neg_p: u32x8,
+    two_p: u32x8,
+) -> (u32x8, u32x8) {
     let _ = two_p;
-    let avx = simd.avx2;
-    let z0 = simd.small_mod_epu32(p, z0);
-    let shoup_q = simd._mm256_mul_u32_u32_epu32(z1, w_shoup).1;
-    let t = avx._mm256_add_epi32(
-        avx._mm256_mullo_epi32(z1, w),
-        avx._mm256_mullo_epi32(shoup_q, neg_p),
+    let z0 = simd.small_mod_u32x8(p, z0);
+    let shoup_q = simd.widening_mul_u32x8(z1, w_shoup).1;
+    let t = simd.wrapping_add_u32x8(
+        simd.wrapping_mul_u32x8(z1, w),
+        simd.wrapping_mul_u32x8(shoup_q, neg_p),
     );
-    let t = simd.small_mod_epu32(p, t);
+    let t = simd.small_mod_u32x8(p, t);
     (
-        avx._mm256_add_epi32(z0, t),
-        avx._mm256_add_epi32(avx._mm256_sub_epi32(z0, t), p),
+        simd.wrapping_add_u32x8(z0, t),
+        simd.wrapping_add_u32x8(simd.wrapping_sub_u32x8(z0, t), p),
     )
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
 pub(crate) fn fwd_last_butterfly_avx2(
-    simd: Avx2,
-    z0: __m256i,
-    z1: __m256i,
-    w: __m256i,
-    w_shoup: __m256i,
-    p: __m256i,
-    neg_p: __m256i,
-    two_p: __m256i,
-) -> (__m256i, __m256i) {
+    simd: crate::V3,
+    z0: u32x8,
+    z1: u32x8,
+    w: u32x8,
+    w_shoup: u32x8,
+    p: u32x8,
+    neg_p: u32x8,
+    two_p: u32x8,
+) -> (u32x8, u32x8) {
     let _ = two_p;
-    let avx = simd.avx2;
-    let z0 = simd.small_mod_epu32(p, z0);
-    let shoup_q = simd._mm256_mul_u32_u32_epu32(z1, w_shoup).1;
-    let t = avx._mm256_add_epi32(
-        avx._mm256_mullo_epi32(z1, w),
-        avx._mm256_mullo_epi32(shoup_q, neg_p),
+    let z0 = simd.small_mod_u32x8(p, z0);
+    let shoup_q = simd.widening_mul_u32x8(z1, w_shoup).1;
+    let t = simd.wrapping_add_u32x8(
+        simd.wrapping_mul_u32x8(z1, w),
+        simd.wrapping_mul_u32x8(shoup_q, neg_p),
     );
-    let t = simd.small_mod_epu32(p, t);
+    let t = simd.small_mod_u32x8(p, t);
     (
-        simd.small_mod_epu32(p, avx._mm256_add_epi32(z0, t)),
-        simd.small_mod_epu32(p, avx._mm256_add_epi32(avx._mm256_sub_epi32(z0, t), p)),
+        simd.small_mod_u32x8(p, simd.wrapping_add_u32x8(z0, t)),
+        simd.small_mod_u32x8(
+            p,
+            simd.wrapping_add_u32x8(simd.wrapping_sub_u32x8(z0, t), p),
+        ),
     )
 }
 
@@ -162,28 +157,27 @@ pub(crate) fn fwd_last_butterfly_scalar(
 #[cfg(feature = "nightly")]
 #[inline(always)]
 pub(crate) fn inv_butterfly_avx512(
-    simd: Avx512,
-    z0: __m512i,
-    z1: __m512i,
-    w: __m512i,
-    w_shoup: __m512i,
-    p: __m512i,
-    neg_p: __m512i,
-    two_p: __m512i,
-) -> (__m512i, __m512i) {
+    simd: crate::V4,
+    z0: u32x16,
+    z1: u32x16,
+    w: u32x16,
+    w_shoup: u32x16,
+    p: u32x16,
+    neg_p: u32x16,
+    two_p: u32x16,
+) -> (u32x16, u32x16) {
     let _ = two_p;
-    let avx = simd.avx512f;
 
-    let y0 = avx._mm512_add_epi32(z0, z1);
-    let y0 = simd.small_mod_epu32(p, y0);
-    let t = avx._mm512_add_epi32(avx._mm512_sub_epi32(z0, z1), p);
+    let y0 = simd.wrapping_add_u32x16(z0, z1);
+    let y0 = simd.small_mod_u32x16(p, y0);
+    let t = simd.wrapping_add_u32x16(simd.wrapping_sub_u32x16(z0, z1), p);
 
-    let shoup_q = simd._mm512_mul_u32_u32_epu32(t, w_shoup).1;
-    let y1 = avx._mm512_add_epi32(
-        avx._mm512_mullo_epi32(t, w),
-        avx._mm512_mullo_epi32(shoup_q, neg_p),
+    let shoup_q = simd.widening_mul_u32x16(t, w_shoup).1;
+    let y1 = simd.wrapping_add_u32x16(
+        simd.wrapping_mul_u32x16(t, w),
+        simd.wrapping_mul_u32x16(shoup_q, neg_p),
     );
-    let y1 = simd.small_mod_epu32(p, y1);
+    let y1 = simd.small_mod_u32x16(p, y1);
 
     (y0, y1)
 }
@@ -191,28 +185,27 @@ pub(crate) fn inv_butterfly_avx512(
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
 pub(crate) fn inv_butterfly_avx2(
-    simd: Avx2,
-    z0: __m256i,
-    z1: __m256i,
-    w: __m256i,
-    w_shoup: __m256i,
-    p: __m256i,
-    neg_p: __m256i,
-    two_p: __m256i,
-) -> (__m256i, __m256i) {
+    simd: crate::V3,
+    z0: u32x8,
+    z1: u32x8,
+    w: u32x8,
+    w_shoup: u32x8,
+    p: u32x8,
+    neg_p: u32x8,
+    two_p: u32x8,
+) -> (u32x8, u32x8) {
     let _ = two_p;
-    let avx = simd.avx2;
 
-    let y0 = avx._mm256_add_epi32(z0, z1);
-    let y0 = simd.small_mod_epu32(p, y0);
-    let t = avx._mm256_add_epi32(avx._mm256_sub_epi32(z0, z1), p);
+    let y0 = simd.wrapping_add_u32x8(z0, z1);
+    let y0 = simd.small_mod_u32x8(p, y0);
+    let t = simd.wrapping_add_u32x8(simd.wrapping_sub_u32x8(z0, z1), p);
 
-    let shoup_q = simd._mm256_mul_u32_u32_epu32(t, w_shoup).1;
-    let y1 = avx._mm256_add_epi32(
-        avx._mm256_mullo_epi32(t, w),
-        avx._mm256_mullo_epi32(shoup_q, neg_p),
+    let shoup_q = simd.widening_mul_u32x8(t, w_shoup).1;
+    let y1 = simd.wrapping_add_u32x8(
+        simd.wrapping_mul_u32x8(t, w),
+        simd.wrapping_mul_u32x8(shoup_q, neg_p),
     );
-    let y1 = simd.small_mod_epu32(p, y1);
+    let y1 = simd.small_mod_u32x8(p, y1);
 
     (y0, y1)
 }
@@ -240,7 +233,13 @@ pub(crate) fn inv_butterfly_scalar(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub(crate) fn fwd_avx512(simd: Avx512, p: u32, data: &mut [u32], twid: &[u32], twid_shoup: &[u32]) {
+pub(crate) fn fwd_avx512(
+    simd: crate::V4,
+    p: u32,
+    data: &mut [u32],
+    twid: &[u32],
+    twid_shoup: &[u32],
+) {
     super::shoup::fwd_depth_first_avx512(
         simd,
         p,
@@ -262,7 +261,13 @@ pub(crate) fn fwd_avx512(simd: Avx512, p: u32, data: &mut [u32], twid: &[u32], t
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-pub(crate) fn inv_avx512(simd: Avx512, p: u32, data: &mut [u32], twid: &[u32], twid_shoup: &[u32]) {
+pub(crate) fn inv_avx512(
+    simd: crate::V4,
+    p: u32,
+    data: &mut [u32],
+    twid: &[u32],
+    twid_shoup: &[u32],
+) {
     super::shoup::inv_depth_first_avx512(
         simd,
         p,
@@ -283,7 +288,13 @@ pub(crate) fn inv_avx512(simd: Avx512, p: u32, data: &mut [u32], twid: &[u32], t
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub(crate) fn fwd_avx2(simd: Avx2, p: u32, data: &mut [u32], twid: &[u32], twid_shoup: &[u32]) {
+pub(crate) fn fwd_avx2(
+    simd: crate::V3,
+    p: u32,
+    data: &mut [u32],
+    twid: &[u32],
+    twid_shoup: &[u32],
+) {
     super::shoup::fwd_depth_first_avx2(
         simd,
         p,
@@ -304,7 +315,13 @@ pub(crate) fn fwd_avx2(simd: Avx2, p: u32, data: &mut [u32], twid: &[u32], twid_
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub(crate) fn inv_avx2(simd: Avx2, p: u32, data: &mut [u32], twid: &[u32], twid_shoup: &[u32]) {
+pub(crate) fn inv_avx2(
+    simd: crate::V3,
+    p: u32,
+    data: &mut [u32],
+    twid: &[u32],
+    twid_shoup: &[u32],
+) {
     super::shoup::inv_depth_first_avx2(
         simd,
         p,
@@ -333,11 +350,11 @@ pub(crate) fn fwd_scalar(p: u32, data: &mut [u32], twid: &[u32], twid_shoup: &[u
         0,
         0,
         #[inline(always)]
-        |z0, z1, w, w_shoup, p, neg_p, two_p| {
+        |(), z0, z1, w, w_shoup, p, neg_p, two_p| {
             fwd_butterfly_scalar(z0, z1, w, w_shoup, p, neg_p, two_p)
         },
         #[inline(always)]
-        |z0, z1, w, w_shoup, p, neg_p, two_p| {
+        |(), z0, z1, w, w_shoup, p, neg_p, two_p| {
             fwd_last_butterfly_scalar(z0, z1, w, w_shoup, p, neg_p, two_p)
         },
     )
@@ -352,11 +369,11 @@ pub(crate) fn inv_scalar(p: u32, data: &mut [u32], twid: &[u32], twid_shoup: &[u
         0,
         0,
         #[inline(always)]
-        |z0, z1, w, w_shoup, p, neg_p, two_p| {
+        |(), z0, z1, w, w_shoup, p, neg_p, two_p| {
             inv_butterfly_scalar(z0, z1, w, w_shoup, p, neg_p, two_p)
         },
         #[inline(always)]
-        |z0, z1, w, w_shoup, p, neg_p, two_p| {
+        |(), z0, z1, w, w_shoup, p, neg_p, two_p| {
             inv_butterfly_scalar(z0, z1, w, w_shoup, p, neg_p, two_p)
         },
     )
@@ -366,38 +383,15 @@ pub(crate) fn inv_scalar(p: u32, data: &mut [u32], twid: &[u32], twid_shoup: &[u
 mod tests {
     use super::*;
     use crate::{
-        fastdiv::Div32, prime::largest_prime_in_arithmetic_progression64,
-        prime32::init_negacyclic_twiddles_shoup,
+        prime::largest_prime_in_arithmetic_progression64,
+        prime32::{
+            init_negacyclic_twiddles_shoup,
+            tests::{mul, random_lhs_rhs_with_negacyclic_convolution},
+        },
     };
-    use rand::random;
 
     extern crate alloc;
     use alloc::vec;
-
-    #[inline(always)]
-    fn add(p: u32, a: u32, b: u32) -> u32 {
-        let neg_b = p - b;
-        if a >= neg_b {
-            a - neg_b
-        } else {
-            a + b
-        }
-    }
-
-    #[inline(always)]
-    fn sub(p: u32, a: u32, b: u32) -> u32 {
-        let neg_b = p - b;
-        if a >= b {
-            a - b
-        } else {
-            a + neg_b
-        }
-    }
-
-    #[inline(always)]
-    fn mul(p: Div32, a: u32, b: u32) -> u32 {
-        Div32::rem_u64(a as u64 * b as u64, p)
-    }
 
     #[test]
     fn test_product() {
@@ -405,35 +399,8 @@ mod tests {
             let p = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 30, 1 << 31).unwrap()
                 as u32;
 
-            let mut lhs = vec![0u32; n];
-            let mut rhs = vec![0u32; n];
-
-            for x in &mut lhs {
-                *x = random();
-                *x %= p;
-            }
-            for x in &mut rhs {
-                *x = random();
-                *x %= p;
-            }
-
-            let lhs = lhs;
-            let rhs = rhs;
-
-            let mut full_convolution = vec![0u32; 2 * n];
-            let mut negacyclic_convolution = vec![0u32; n];
-            for i in 0..n {
-                for j in 0..n {
-                    full_convolution[i + j] = add(
-                        p,
-                        full_convolution[i + j],
-                        mul(Div32::new(p), lhs[i], rhs[j]),
-                    );
-                }
-            }
-            for i in 0..n {
-                negacyclic_convolution[i] = sub(p, full_convolution[i], full_convolution[i + n]);
-            }
+            let (lhs, rhs, negacyclic_convolution) =
+                random_lhs_rhs_with_negacyclic_convolution(n, p);
 
             let mut twid = vec![0u32; n];
             let mut twid_shoup = vec![0u32; n];
@@ -462,17 +429,14 @@ mod tests {
             }
 
             for i in 0..n {
-                prod[i] = mul(Div32::new(p), lhs_fourier[i], rhs_fourier[i]);
+                prod[i] = mul(p, lhs_fourier[i], rhs_fourier[i]);
             }
 
             inv_scalar(p, &mut prod, &inv_twid, &inv_twid_shoup);
             let result = prod;
 
             for i in 0..n {
-                assert_eq!(
-                    result[i],
-                    mul(Div32::new(p), negacyclic_convolution[i], n as u32),
-                );
+                assert_eq!(result[i], mul(p, negacyclic_convolution[i], n as u32));
             }
         }
     }
@@ -480,41 +444,13 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
     fn test_product_avx2() {
-        if let Some(simd) = Avx2::try_new() {
+        if let Some(simd) = crate::V3::try_new() {
             for n in [32, 64, 128, 256, 512, 1024] {
                 let p = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 30, 1 << 31)
                     .unwrap() as u32;
 
-                let mut lhs = vec![0u32; n];
-                let mut rhs = vec![0u32; n];
-
-                for x in &mut lhs {
-                    *x = random();
-                    *x %= p;
-                }
-                for x in &mut rhs {
-                    *x = random();
-                    *x %= p;
-                }
-
-                let lhs = lhs;
-                let rhs = rhs;
-
-                let mut full_convolution = vec![0u32; 2 * n];
-                let mut negacyclic_convolution = vec![0u32; n];
-                for i in 0..n {
-                    for j in 0..n {
-                        full_convolution[i + j] = add(
-                            p,
-                            full_convolution[i + j],
-                            mul(Div32::new(p), lhs[i], rhs[j]),
-                        );
-                    }
-                }
-                for i in 0..n {
-                    negacyclic_convolution[i] =
-                        sub(p, full_convolution[i], full_convolution[i + n]);
-                }
+                let (lhs, rhs, negacyclic_convolution) =
+                    random_lhs_rhs_with_negacyclic_convolution(n, p);
 
                 let mut twid = vec![0u32; n];
                 let mut twid_shoup = vec![0u32; n];
@@ -543,17 +479,14 @@ mod tests {
                 }
 
                 for i in 0..n {
-                    prod[i] = mul(Div32::new(p), lhs_fourier[i], rhs_fourier[i]);
+                    prod[i] = mul(p, lhs_fourier[i], rhs_fourier[i]);
                 }
 
                 inv_avx2(simd, p, &mut prod, &inv_twid, &inv_twid_shoup);
                 let result = prod;
 
                 for i in 0..n {
-                    assert_eq!(
-                        result[i],
-                        mul(Div32::new(p), negacyclic_convolution[i], n as u32),
-                    );
+                    assert_eq!(result[i], mul(p, negacyclic_convolution[i], n as u32));
                 }
             }
         }
@@ -563,41 +496,13 @@ mod tests {
     #[cfg(feature = "nightly")]
     #[test]
     fn test_product_avx512() {
-        if let Some(simd) = Avx512::try_new() {
+        if let Some(simd) = crate::V4::try_new() {
             for n in [32, 64, 128, 256, 512, 1024] {
                 let p = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 30, 1 << 31)
                     .unwrap() as u32;
 
-                let mut lhs = vec![0u32; n];
-                let mut rhs = vec![0u32; n];
-
-                for x in &mut lhs {
-                    *x = random();
-                    *x %= p;
-                }
-                for x in &mut rhs {
-                    *x = random();
-                    *x %= p;
-                }
-
-                let lhs = lhs;
-                let rhs = rhs;
-
-                let mut full_convolution = vec![0u32; 2 * n];
-                let mut negacyclic_convolution = vec![0u32; n];
-                for i in 0..n {
-                    for j in 0..n {
-                        full_convolution[i + j] = add(
-                            p,
-                            full_convolution[i + j],
-                            mul(Div32::new(p), lhs[i], rhs[j]),
-                        );
-                    }
-                }
-                for i in 0..n {
-                    negacyclic_convolution[i] =
-                        sub(p, full_convolution[i], full_convolution[i + n]);
-                }
+                let (lhs, rhs, negacyclic_convolution) =
+                    random_lhs_rhs_with_negacyclic_convolution(n, p);
 
                 let mut twid = vec![0u32; n];
                 let mut twid_shoup = vec![0u32; n];
@@ -626,17 +531,14 @@ mod tests {
                 }
 
                 for i in 0..n {
-                    prod[i] = mul(Div32::new(p), lhs_fourier[i], rhs_fourier[i]);
+                    prod[i] = mul(p, lhs_fourier[i], rhs_fourier[i]);
                 }
 
                 inv_avx512(simd, p, &mut prod, &inv_twid, &inv_twid_shoup);
                 let result = prod;
 
                 for i in 0..n {
-                    assert_eq!(
-                        result[i],
-                        mul(Div32::new(p), negacyclic_convolution[i], n as u32),
-                    );
+                    assert_eq!(result[i], mul(p, negacyclic_convolution[i], n as u32));
                 }
             }
         }

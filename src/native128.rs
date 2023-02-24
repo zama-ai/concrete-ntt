@@ -308,12 +308,47 @@ impl Plan32 {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
+    use alloc::{vec, vec::Vec};
     use rand::random;
 
     extern crate alloc;
-    use alloc::{vec, vec::Vec};
+
+    pub fn negacyclic_convolution(n: usize, lhs: &[u128], rhs: &[u128]) -> Vec<u128> {
+        let mut full_convolution = vec![0u128; 2 * n];
+        let mut negacyclic_convolution = vec![0u128; n];
+        for i in 0..n {
+            for j in 0..n {
+                full_convolution[i + j] =
+                    full_convolution[i + j].wrapping_add(lhs[i].wrapping_mul(rhs[j]));
+            }
+        }
+        for i in 0..n {
+            negacyclic_convolution[i] = full_convolution[i].wrapping_sub(full_convolution[i + n]);
+        }
+        negacyclic_convolution
+    }
+
+    pub fn random_lhs_rhs_with_negacyclic_convolution(
+        n: usize,
+    ) -> (Vec<u128>, Vec<u128>, Vec<u128>) {
+        let mut lhs = vec![0u128; n];
+        let mut rhs = vec![0u128; n];
+
+        for x in &mut lhs {
+            *x = random();
+        }
+        for x in &mut rhs {
+            *x = random();
+        }
+
+        let lhs = lhs;
+        let rhs = rhs;
+
+        let negacyclic_convolution = negacyclic_convolution(n, &lhs, &rhs);
+        (lhs, rhs, negacyclic_convolution)
+    }
 
     #[test]
     fn reconstruct_32bit() {
@@ -362,20 +397,7 @@ mod tests {
                 assert_eq!(value_roundtrip, value.wrapping_mul(n as u128));
             }
 
-            let lhs = (0..n).map(|_| random::<u128>()).collect::<Vec<_>>();
-            let rhs = (0..n).map(|_| random::<u128>()).collect::<Vec<_>>();
-            let mut full_convolution = vec![0u128; 2 * n];
-            let mut negacyclic_convolution = vec![0u128; n];
-            for i in 0..n {
-                for j in 0..n {
-                    full_convolution[i + j] =
-                        full_convolution[i + j].wrapping_add(lhs[i].wrapping_mul(rhs[j]));
-                }
-            }
-            for i in 0..n {
-                negacyclic_convolution[i] =
-                    full_convolution[i].wrapping_sub(full_convolution[i + n]);
-            }
+            let (lhs, rhs, negacyclic_convolution) = random_lhs_rhs_with_negacyclic_convolution(n);
 
             let mut prod = vec![0; n];
             plan.negacyclic_polymul(&mut prod, &lhs, &rhs);

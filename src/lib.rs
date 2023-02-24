@@ -8,7 +8,7 @@
 //! allowing the simulation of arithmetic modulo the product of those primes, and truncates the
 //! result when the inverse transform is desired. The truncated result is guaranteed to be as if
 //! the computations were performed with wrapping arithmetic, as long as the full integer result
-//! would have be smaller than half the product of the primes, in absolute value. It is guaranteed
+//! would have been smaller than half the product of the primes, in absolute value. It is guaranteed
 //! to be suitable for multiplying two polynomials with arbitrary coefficients, and returns the
 //! result in wrapping arithmetic.
 //! - The native binary NTT is similar to the native NTT, but is optimized for the case where one
@@ -54,13 +54,30 @@
 #![allow(clippy::too_many_arguments, clippy::let_unit_value)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
-#[cfg(target_arch = "x86_64")]
-use core::arch::x86_64::*;
+/// Implementation notes:
+///
+/// we use `NullaryFnOnce` instead of a closure because we need the `#[inline(always)]`
+/// annotation, which doesn't always work with closures for some reason.
+///
+/// Shoup modular multiplication  
+/// <https://pdfs.semanticscholar.org/e000/fa109f1b2a6a3e52e04462bac4b7d58140c9.pdf>
+///
+/// Lemire modular reduction  
+/// <https://lemire.me/blog/2019/02/08/faster-remainders-when-the-divisor-is-a-constant-beating-compilers-and-libdivide/>
+///
+/// Barrett reduction  
+/// <https://arxiv.org/pdf/2103.16400.pdf> Algorithm 8
+///
+/// Chinese remainder theorem solution:
+/// The art of computer programming (Donald E. Knuth), section 4.3.2
+#[allow(dead_code)]
+fn implementation_notes() {}
+
 use core::fmt::Debug;
-use pulp::simd_type;
 use u256_impl::u256;
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+use pulp::{cast, x86::*};
 
 #[doc(hidden)]
 pub mod prime;
@@ -69,8 +86,6 @@ mod u256_impl;
 
 /// Fast division by a constant divisor.
 pub mod fastdiv;
-/// 128bit negacyclic NTT for a prime modulus. (unimplemented)
-pub mod prime128;
 /// 32bit negacyclic NTT for a prime modulus.
 pub mod prime32;
 /// 64bit negacyclic NTT for a prime modulus.
@@ -93,45 +108,185 @@ pub mod native_binary32;
 /// polynomial.
 pub mod native_binary64;
 
+// Fn arguments are (simd, z0, z1, w, w_shoup, p, neg_p, two_p)
+trait Butterfly<S: Copy, V: Copy>: Copy + Fn(S, V, V, V, V, V, V, V) -> (V, V) {}
+impl<F: Copy + Fn(S, V, V, V, V, V, V, V) -> (V, V), S: Copy, V: Copy> Butterfly<S, V> for F {}
+
 #[inline]
 fn bit_rev(nbits: u32, i: usize) -> usize {
     i.reverse_bits() >> (usize::BITS - nbits)
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-simd_type! {
-    struct Avx2 {
-        pub sse: "sse",
-        pub sse2: "sse2",
-        pub sse3: "sse3",
-        pub avx: "avx",
-        pub avx2: "avx2",
-    }
-}
+#[derive(Copy, Clone, Debug)]
+#[repr(transparent)]
+struct V3(pulp::x86::V3);
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(feature = "nightly")]
+#[derive(Copy, Clone, Debug)]
+#[repr(transparent)]
+struct V4(pulp::x86::V4);
 
 #[cfg(any(
-    doc,
+    all(feature = "nightly", doc),
     all(feature = "nightly", any(target_arch = "x86", target_arch = "x86_64"))
 ))]
-simd_type! {
-    struct Avx512 {
+pulp::simd_type! {
+    struct V4IFma {
         pub sse: "sse",
         pub sse2: "sse2",
+        pub fxsr: "fxsr",
+        pub sse3: "sse3",
+        pub ssse3: "ssse3",
+        pub sse4_1: "sse4.1",
+        pub sse4_2: "sse4.2",
+        pub popcnt: "popcnt",
         pub avx: "avx",
         pub avx2: "avx2",
+        pub bmi1: "bmi1",
+        pub bmi2: "bmi2",
+        pub fma: "fma",
+        pub lzcnt: "lzcnt",
         pub avx512f: "avx512f",
-        pub avx512ifma: "avx512ifma",
+        pub avx512bw: "avx512bw",
+        pub avx512cd: "avx512cd",
         pub avx512dq: "avx512dq",
+        pub avx512vl: "avx512vl",
+        pub avx512ifma: "avx512ifma",
     }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-impl Avx2 {
+#[cfg(feature = "nightly")]
+impl V4 {
+    #[inline]
+    pub fn try_new() -> Option<Self> {
+        pulp::x86::V4::try_new().map(Self)
+    }
+
+    /// Returns separately two vectors containing the low 64 bits of the result,
+    /// and the high 64 bits of the result.
     #[inline(always)]
-    pub fn _mm256_mul_u64_u64_epu64(self, x: __m256i, y: __m256i) -> (__m256i, __m256i) {
+    pub fn widening_mul_u64x8(self, a: u64x8, b: u64x8) -> (u64x8, u64x8) {
+        // https://stackoverflow.com/a/28827013
+        let avx = self.avx512f;
+        let x = cast(a);
+        let y = cast(b);
+
+        let lo_mask = avx._mm512_set1_epi64(0x0000_0000_FFFF_FFFFu64 as _);
+        let x_hi = avx._mm512_shuffle_epi32::<0b1011_0001>(x);
+        let y_hi = avx._mm512_shuffle_epi32::<0b1011_0001>(y);
+
+        let z_lo_lo = avx._mm512_mul_epu32(x, y);
+        let z_lo_hi = avx._mm512_mul_epu32(x, y_hi);
+        let z_hi_lo = avx._mm512_mul_epu32(x_hi, y);
+        let z_hi_hi = avx._mm512_mul_epu32(x_hi, y_hi);
+
+        let z_lo_lo_shift = avx._mm512_srli_epi64::<32>(z_lo_lo);
+
+        let sum_tmp = avx._mm512_add_epi64(z_lo_hi, z_lo_lo_shift);
+        let sum_lo = avx._mm512_and_si512(sum_tmp, lo_mask);
+        let sum_mid = avx._mm512_srli_epi64::<32>(sum_tmp);
+
+        let sum_mid2 = avx._mm512_add_epi64(z_hi_lo, sum_lo);
+        let sum_mid2_hi = avx._mm512_srli_epi64::<32>(sum_mid2);
+        let sum_hi = avx._mm512_add_epi64(z_hi_hi, sum_mid);
+
+        let prod_hi = avx._mm512_add_epi64(sum_hi, sum_mid2_hi);
+        let prod_lo = avx._mm512_add_epi64(
+            avx._mm512_slli_epi64::<32>(avx._mm512_add_epi64(z_lo_hi, z_hi_lo)),
+            z_lo_lo,
+        );
+
+        (cast(prod_lo), cast(prod_hi))
+    }
+
+    /// Multiplies the low 32 bits of each 64 bit integer and returns the 64 bit result.
+    #[inline(always)]
+    pub fn mul_low_32_bits_u64x8(self, a: u64x8, b: u64x8) -> u64x8 {
+        pulp::cast(self.avx512f._mm512_mul_epu32(pulp::cast(a), pulp::cast(b)))
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(feature = "nightly")]
+impl V4IFma {
+    /// Returns separately two vectors containing the low 52 bits of the result,
+    /// and the high 52 bits of the result.
+    #[inline(always)]
+    pub fn widening_mul_u52x8(self, a: u64x8, b: u64x8) -> (u64x8, u64x8) {
+        let a = cast(a);
+        let b = cast(b);
+        let zero = cast(self.splat_u64x8(0));
+        (
+            cast(self.avx512ifma._mm512_madd52lo_epu64(zero, a, b)),
+            cast(self.avx512ifma._mm512_madd52hi_epu64(zero, a, b)),
+        )
+    }
+
+    /// (a * b + c) mod 2^52 for each 52 bit integer in a, b, and c.
+    #[inline(always)]
+    pub fn wrapping_mul_add_u52x8(self, a: u64x8, b: u64x8, c: u64x8) -> u64x8 {
+        self.and_u64x8(
+            cast(
+                self.avx512ifma
+                    ._mm512_madd52lo_epu64(cast(c), cast(a), cast(b)),
+            ),
+            self.splat_u64x8((1u64 << 52) - 1),
+        )
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(feature = "nightly")]
+trait SupersetOfV4: Copy {
+    fn get_v4(self) -> V4;
+    fn vectorize(self, f: impl pulp::NullaryFnOnce);
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(feature = "nightly")]
+impl SupersetOfV4 for V4 {
+    #[inline(always)]
+    fn get_v4(self) -> V4 {
+        self
+    }
+    #[inline(always)]
+    fn vectorize(self, f: impl pulp::NullaryFnOnce) {
+        self.0.vectorize(f);
+    }
+}
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(feature = "nightly")]
+impl SupersetOfV4 for V4IFma {
+    #[inline(always)]
+    fn get_v4(self) -> V4 {
+        *self
+    }
+    #[inline(always)]
+    fn vectorize(self, f: impl pulp::NullaryFnOnce) {
+        self.vectorize(f);
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+impl V3 {
+    #[inline]
+    pub fn try_new() -> Option<Self> {
+        pulp::x86::V3::try_new().map(Self)
+    }
+
+    /// Returns separately two vectors containing the low 64 bits of the result,
+    /// and the high 64 bits of the result.
+    #[inline(always)]
+    pub fn widening_mul_u64x4(self, a: u64x4, b: u64x4) -> (u64x4, u64x4) {
+        // https://stackoverflow.com/a/28827013
         let avx = self.avx;
         let avx2 = self.avx2;
-        let lo_mask = avx._mm256_set1_epi64x(0x00000000FFFFFFFFu64 as _);
+        let x = cast(a);
+        let y = cast(b);
+        let lo_mask = avx._mm256_set1_epi64x(0x0000_0000_FFFF_FFFFu64 as _);
         let x_hi = avx2._mm256_shuffle_epi32::<0b10110001>(x);
         let y_hi = avx2._mm256_shuffle_epi32::<0b10110001>(y);
 
@@ -156,146 +311,138 @@ impl Avx2 {
             z_lo_lo,
         );
 
-        (prod_lo, prod_hi)
+        (cast(prod_lo), cast(prod_hi))
     }
 
+    /// Multiplies the low 32 bits of each 64 bit integer and returns the 64 bit result.
     #[inline(always)]
-    pub fn _mm256_mullo_u64_u32_epu64(self, x: __m256i, y: __m256i) -> __m256i {
+    pub fn mul_low_32_bits_u64x4(self, a: u64x4, b: u64x4) -> u64x4 {
+        pulp::cast(self.avx2._mm256_mul_epu32(pulp::cast(a), pulp::cast(b)))
+    }
+
+    // (a * b mod 2^32) mod 2^64 for each element in a and b.
+    #[inline(always)]
+    pub fn wrapping_mul_lhs_with_low_32_bits_of_rhs_u64x4(self, a: u64x4, b: u64x4) -> u64x4 {
+        let a = cast(a);
+        let b = cast(b);
         let avx2 = self.avx2;
-        let x_hi = avx2._mm256_shuffle_epi32::<0b10110001>(x);
-        let z_lo_lo = avx2._mm256_mul_epu32(x, y);
-        let z_hi_lo = avx2._mm256_mul_epu32(x_hi, y);
-        avx2._mm256_add_epi64(avx2._mm256_slli_epi64::<32>(z_hi_lo), z_lo_lo)
-    }
-
-    #[inline(always)]
-    pub fn _mm256_cmpgt_epu64(self, x: __m256i, y: __m256i) -> __m256i {
-        let c = self.avx._mm256_set1_epi64x(0x8000000000000000u64 as _);
-        self.avx2._mm256_cmpgt_epi64(
-            self.avx2._mm256_xor_si256(x, c),
-            self.avx2._mm256_xor_si256(y, c),
-        )
-    }
-
-    #[inline(always)]
-    pub fn _mm256_mul_u32_u32_epu32(self, a: __m256i, b: __m256i) -> (__m256i, __m256i) {
-        let avx2 = self.avx2;
-
-        // a0b0_lo a0b0_hi a2b2_lo a2b2_hi
-        let ab_evens = avx2._mm256_mul_epu32(a, b);
-        // a1b1_lo a1b1_hi a3b3_lo a3b3_hi
-        let ab_odds = avx2._mm256_mul_epu32(
-            avx2._mm256_srli_epi64::<32>(a),
-            avx2._mm256_srli_epi64::<32>(b),
-        );
-
-        let ab_lo = avx2._mm256_blend_epi32::<0b10101010>(
-            // a0b0_lo xxxxxxx a2b2_lo xxxxxxx
-            ab_evens,
-            // xxxxxxx a1b1_lo xxxxxxx a3b3_lo
-            avx2._mm256_slli_epi64::<32>(ab_odds),
-        );
-        let ab_hi = avx2._mm256_blend_epi32::<0b10101010>(
-            // a0b0_hi xxxxxxx a2b2_hi xxxxxxx
-            avx2._mm256_srli_epi64::<32>(ab_evens),
-            // xxxxxxx a1b1_hi xxxxxxx a3b3_hi
-            ab_odds,
-        );
-
-        (ab_lo, ab_hi)
-    }
-
-    #[inline(always)]
-    pub fn _mm256_cmpgt_epu32(self, x: __m256i, y: __m256i) -> __m256i {
-        let c = self.avx._mm256_set1_epi32(0x80000000u32 as _);
-        self.avx2._mm256_cmpgt_epi32(
-            self.avx2._mm256_xor_si256(x, c),
-            self.avx2._mm256_xor_si256(y, c),
-        )
+        let x_hi = avx2._mm256_shuffle_epi32::<0b10110001>(a);
+        let z_lo_lo = avx2._mm256_mul_epu32(a, b);
+        let z_hi_lo = avx2._mm256_mul_epu32(x_hi, b);
+        cast(avx2._mm256_add_epi64(avx2._mm256_slli_epi64::<32>(z_hi_lo), z_lo_lo))
     }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
-impl Avx512 {
-    #[inline(always)]
-    pub fn _mm512_mul_u64_u64_epu64(self, x: __m512i, y: __m512i) -> (__m512i, __m512i) {
-        let avx = self.avx512f;
-        let lo_mask = avx._mm512_set1_epi64(0x00000000FFFFFFFFu64 as _);
-        let x_hi = avx._mm512_shuffle_epi32::<0b10110001>(x);
-        let y_hi = avx._mm512_shuffle_epi32::<0b10110001>(y);
+impl core::ops::Deref for V4 {
+    type Target = pulp::x86::V4;
 
-        let z_lo_lo = avx._mm512_mul_epu32(x, y);
-        let z_lo_hi = avx._mm512_mul_epu32(x, y_hi);
-        let z_hi_lo = avx._mm512_mul_epu32(x_hi, y);
-        let z_hi_hi = avx._mm512_mul_epu32(x_hi, y_hi);
-
-        let z_lo_lo_shift = avx._mm512_srli_epi64::<32>(z_lo_lo);
-
-        let sum_tmp = avx._mm512_add_epi64(z_lo_hi, z_lo_lo_shift);
-        let sum_lo = avx._mm512_and_si512(sum_tmp, lo_mask);
-        let sum_mid = avx._mm512_srli_epi64::<32>(sum_tmp);
-
-        let sum_mid2 = avx._mm512_add_epi64(z_hi_lo, sum_lo);
-        let sum_mid2_hi = avx._mm512_srli_epi64::<32>(sum_mid2);
-        let sum_hi = avx._mm512_add_epi64(z_hi_hi, sum_mid);
-
-        let prod_hi = avx._mm512_add_epi64(sum_hi, sum_mid2_hi);
-        let prod_lo = avx._mm512_add_epi64(
-            avx._mm512_slli_epi64::<32>(avx._mm512_add_epi64(z_lo_hi, z_hi_lo)),
-            z_lo_lo,
-        );
-
-        (prod_lo, prod_hi)
-    }
-
-    #[inline(always)]
-    pub fn _mm512_mul_u32_u32_epu32(self, a: __m512i, b: __m512i) -> (__m512i, __m512i) {
-        let avx2 = self.avx512f;
-
-        // a0b0_lo a0b0_hi a2b2_lo a2b2_hi
-        let ab_evens = avx2._mm512_mul_epu32(a, b);
-        // a1b1_lo a1b1_hi a3b3_lo a3b3_hi
-        let ab_odds = avx2._mm512_mul_epu32(
-            avx2._mm512_srli_epi64::<32>(a),
-            avx2._mm512_srli_epi64::<32>(b),
-        );
-
-        let ab_lo = avx2._mm512_mask_blend_epi32(
-            0b1010101010101010,
-            // a0b0_lo xxxxxxx a2b2_lo xxxxxxx
-            ab_evens,
-            // xxxxxxx a1b1_lo xxxxxxx a3b3_lo
-            avx2._mm512_slli_epi64::<32>(ab_odds),
-        );
-        let ab_hi = avx2._mm512_mask_blend_epi32(
-            0b1010101010101010,
-            // a0b0_hi xxxxxxx a2b2_hi xxxxxxx
-            avx2._mm512_srli_epi64::<32>(ab_evens),
-            // xxxxxxx a1b1_hi xxxxxxx a3b3_hi
-            ab_odds,
-        );
-
-        (ab_lo, ab_hi)
-    }
-
-    #[inline(always)]
-    pub fn _mm512_movm_epi64(self, k: __mmask8) -> __m512i {
-        let avx = self.avx512f;
-        let zeros = avx._mm512_setzero_si512();
-        let ones = avx._mm512_set1_epi64(-1);
-        avx._mm512_mask_blend_epi64(k, zeros, ones)
-    }
-
-    #[inline(always)]
-    pub fn _mm512_movm_epi32(self, k: __mmask16) -> __m512i {
-        let avx = self.avx512f;
-        let zeros = avx._mm512_setzero_si512();
-        let ones = avx._mm512_set1_epi32(-1);
-        avx._mm512_mask_blend_epi32(k, zeros, ones)
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(feature = "nightly")]
+impl core::ops::Deref for V4IFma {
+    type Target = V4;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        let Self {
+            sse,
+            sse2,
+            fxsr,
+            sse3,
+            ssse3,
+            sse4_1,
+            sse4_2,
+            popcnt,
+            avx,
+            avx2,
+            bmi1,
+            bmi2,
+            fma,
+            lzcnt,
+            avx512f,
+            avx512bw,
+            avx512cd,
+            avx512dq,
+            avx512vl,
+            avx512ifma: _,
+        } = *self;
+        let simd_ref = (pulp::x86::V4 {
+            sse,
+            sse2,
+            fxsr,
+            sse3,
+            ssse3,
+            sse4_1,
+            sse4_2,
+            popcnt,
+            avx,
+            avx2,
+            bmi1,
+            bmi2,
+            fma,
+            lzcnt,
+            avx512f,
+            avx512bw,
+            avx512cd,
+            avx512dq,
+            avx512vl,
+        })
+        .to_ref();
+
+        // SAFETY
+        // `pulp::x86::V4` and `crate::V4` have the same layout, since the latter is
+        // #[repr(transparent)].
+        unsafe { &*(simd_ref as *const pulp::x86::V4 as *const V4) }
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+impl core::ops::Deref for V3 {
+    type Target = pulp::x86::V3;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+// the magic constants are such that
+// for all x < 2^64
+// x / P_i == ((x * P_i_MAGIC) >> 64) >> P_i_MAGIC_SHIFT
+//
+// this can be used to implement the modulo operation in constant time to avoid side channel
+// attacks, can also speed up the operation x % P_i, since the compiler doesn't manage to vectorize
+// it on its own.
+//
+// how to:
+// run `cargo test generate_primes -- --nocapture`
+//
+// copy paste the generated primes in this function
+// ```
+// pub fn codegen(x: u64) -> u64 {
+//     x / $PRIME
+// }
+// ```
+//
+// look at the generated assembly for codegen
+// extract primes that satisfy the desired property
+//
+// asm should look like this on x86_64
+// ```
+// mov rax, rdi
+// movabs rcx, P_MAGIC (as i64 signed value)
+// mul rcx
+// mov rax, rdx
+// shr rax, P_MAGIC_SHIFT
+// ret
+// ```
 #[allow(dead_code)]
 pub(crate) mod primes32 {
     use crate::{
@@ -303,16 +450,16 @@ pub(crate) mod primes32 {
         prime::exp_mod32,
     };
 
-    pub const P0: u32 = 0b00111111010110100000000000000001;
-    pub const P1: u32 = 0b00111111010111010000000000000001;
-    pub const P2: u32 = 0b00111111011101100000000000000001;
-    pub const P3: u32 = 0b00111111100000100000000000000001;
-    pub const P4: u32 = 0b00111111101011000000000000000001;
-    pub const P5: u32 = 0b00111111101011110000000000000001;
-    pub const P6: u32 = 0b00111111101100010000000000000001;
-    pub const P7: u32 = 0b00111111101110110000000000000001;
-    pub const P8: u32 = 0b00111111110111100000000000000001;
-    pub const P9: u32 = 0b00111111111111000000000000000001;
+    pub const P0: u32 = 0b0011_1111_0101_1010_0000_0000_0000_0001;
+    pub const P1: u32 = 0b0011_1111_0101_1101_0000_0000_0000_0001;
+    pub const P2: u32 = 0b0011_1111_0111_0110_0000_0000_0000_0001;
+    pub const P3: u32 = 0b0011_1111_1000_0010_0000_0000_0000_0001;
+    pub const P4: u32 = 0b0011_1111_1010_1100_0000_0000_0000_0001;
+    pub const P5: u32 = 0b0011_1111_1010_1111_0000_0000_0000_0001;
+    pub const P6: u32 = 0b0011_1111_1011_0001_0000_0000_0000_0001;
+    pub const P7: u32 = 0b0011_1111_1011_1011_0000_0000_0000_0001;
+    pub const P8: u32 = 0b0011_1111_1101_1110_0000_0000_0000_0001;
+    pub const P9: u32 = 0b0011_1111_1111_1100_0000_0000_0000_0001;
 
     pub const P0_MAGIC: u64 = 9317778228489988551;
     pub const P1_MAGIC: u64 = 4658027473943558643;
@@ -451,12 +598,12 @@ pub(crate) mod primes32 {
 pub(crate) mod primes52 {
     use crate::fastdiv::Div64;
 
-    pub const P0: u64 = 0b0011111111111111111111111110011101110000000000000001;
-    pub const P1: u64 = 0b0011111111111111111111111110101110010000000000000001;
-    pub const P2: u64 = 0b0011111111111111111111111110110010000000000000000001;
-    pub const P3: u64 = 0b0011111111111111111111111111100010110000000000000001;
-    pub const P4: u64 = 0b0011111111111111111111111111101110000000000000000001;
-    pub const P5: u64 = 0b0011111111111111111111111111110001110000000000000001;
+    pub const P0: u64 = 0b0011_1111_1111_1111_1111_1111_1110_0111_0111_0000_0000_0000_0001;
+    pub const P1: u64 = 0b0011_1111_1111_1111_1111_1111_1110_1011_1001_0000_0000_0000_0001;
+    pub const P2: u64 = 0b0011_1111_1111_1111_1111_1111_1110_1100_1000_0000_0000_0000_0001;
+    pub const P3: u64 = 0b0011_1111_1111_1111_1111_1111_1111_1000_1011_0000_0000_0000_0001;
+    pub const P4: u64 = 0b0011_1111_1111_1111_1111_1111_1111_1011_1000_0000_0000_0000_0001;
+    pub const P5: u64 = 0b0011_1111_1111_1111_1111_1111_1111_1100_0111_0000_0000_0000_0001;
 
     pub const P0_MAGIC: u64 = 9223372247845040859;
     pub const P1_MAGIC: u64 = 4611686106205779591;
@@ -543,16 +690,16 @@ mod tests {
 
     #[test]
     fn test_barrett32() {
-        let q =
+        let p =
             largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 30, 1 << 31).unwrap() as u32;
 
-        let big_q: u32 = q.ilog2() + 1;
+        let big_q: u32 = p.ilog2() + 1;
         let big_l: u32 = big_q + 31;
-        let k: u32 = ((1u128 << big_l) / q as u128).try_into().unwrap();
+        let k: u32 = ((1u128 << big_l) / p as u128).try_into().unwrap();
 
         for _ in 0..10000 {
-            let a = random::<u32>() % q;
-            let b = random::<u32>() % q;
+            let a = random::<u32>() % p;
+            let b = random::<u32>() % p;
 
             let d = a as u64 * b as u64;
             // Q < 31
@@ -561,23 +708,23 @@ mod tests {
             let c1 = (d >> (big_q - 1)) as u32;
             // c2 < 2^(Q+33)
             let c3 = ((c1 as u64 * k as u64) >> 32) as u32;
-            let c = (d as u32).wrapping_sub(q.wrapping_mul(c3));
-            let c = if c >= q { c - q } else { c };
-            assert_eq!(c as u64, d % q as u64);
+            let c = (d as u32).wrapping_sub(p.wrapping_mul(c3));
+            let c = if c >= p { c - p } else { c };
+            assert_eq!(c as u64, d % p as u64);
         }
     }
 
     #[test]
     fn test_barrett64() {
-        let q = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 62, 1 << 63).unwrap();
+        let p = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 62, 1 << 63).unwrap();
 
-        let big_q: u32 = q.ilog2() + 1;
+        let big_q: u32 = p.ilog2() + 1;
         let big_l: u32 = big_q + 63;
-        let k: u64 = ((1u128 << big_l) / q as u128).try_into().unwrap();
+        let k: u64 = ((1u128 << big_l) / p as u128).try_into().unwrap();
 
         for _ in 0..10000 {
-            let a = random::<u64>() % q;
-            let b = random::<u64>() % q;
+            let a = random::<u64>() % p;
+            let b = random::<u64>() % p;
 
             let d = a as u128 * b as u128;
             // Q < 63
@@ -586,12 +733,16 @@ mod tests {
             let c1 = (d >> (big_q - 1)) as u64;
             // c2 < 2^(Q+65)
             let c3 = ((c1 as u128 * k as u128) >> 64) as u64;
-            let c = (d as u64).wrapping_sub(q.wrapping_mul(c3));
-            let c = if c >= q { c - q } else { c };
-            assert_eq!(c as u128, d % q as u128);
+            let c = (d as u64).wrapping_sub(p.wrapping_mul(c3));
+            let c = if c >= p { c - p } else { c };
+            assert_eq!(c as u128, d % p as u128);
         }
     }
 
+    // primes should be of the form x * LARGEST_POLYNOMIAL_SIZE(2^16) + 1
+    // primes should be < 2^30 or < 2^50, for NTT efficiency
+    // primes should satisfy the magic property documented above the primes32 module
+    // primes should be as large as possible
     #[cfg(feature = "std")]
     #[test]
     fn generate_primes() {
@@ -605,6 +756,128 @@ mod tests {
         for _ in 0..100 {
             p = largest_prime_in_arithmetic_progression64(1 << 16, 1, 0, p - 1).unwrap();
             println!("{p:#054b}");
+        }
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(test)]
+mod x86_tests {
+    use super::*;
+    use rand::random as rnd;
+
+    #[test]
+    fn test_widening_mul() {
+        if let Some(simd) = crate::V3::try_new() {
+            let a = u64x4(rnd(), rnd(), rnd(), rnd());
+            let b = u64x4(rnd(), rnd(), rnd(), rnd());
+            let (lo, hi) = simd.widening_mul_u64x4(a, b);
+            assert_eq!(
+                lo,
+                u64x4(
+                    u64::wrapping_mul(a.0, b.0),
+                    u64::wrapping_mul(a.1, b.1),
+                    u64::wrapping_mul(a.2, b.2),
+                    u64::wrapping_mul(a.3, b.3),
+                ),
+            );
+            assert_eq!(
+                hi,
+                u64x4(
+                    ((a.0 as u128 * b.0 as u128) >> 64) as u64,
+                    ((a.1 as u128 * b.1 as u128) >> 64) as u64,
+                    ((a.2 as u128 * b.2 as u128) >> 64) as u64,
+                    ((a.3 as u128 * b.3 as u128) >> 64) as u64,
+                ),
+            );
+        }
+
+        #[cfg(feature = "nightly")]
+        if let Some(simd) = crate::V4::try_new() {
+            let a = u64x8(rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd());
+            let b = u64x8(rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd());
+            let (lo, hi) = simd.widening_mul_u64x8(a, b);
+            assert_eq!(
+                lo,
+                u64x8(
+                    u64::wrapping_mul(a.0, b.0),
+                    u64::wrapping_mul(a.1, b.1),
+                    u64::wrapping_mul(a.2, b.2),
+                    u64::wrapping_mul(a.3, b.3),
+                    u64::wrapping_mul(a.4, b.4),
+                    u64::wrapping_mul(a.5, b.5),
+                    u64::wrapping_mul(a.6, b.6),
+                    u64::wrapping_mul(a.7, b.7),
+                ),
+            );
+            assert_eq!(
+                hi,
+                u64x8(
+                    ((a.0 as u128 * b.0 as u128) >> 64) as u64,
+                    ((a.1 as u128 * b.1 as u128) >> 64) as u64,
+                    ((a.2 as u128 * b.2 as u128) >> 64) as u64,
+                    ((a.3 as u128 * b.3 as u128) >> 64) as u64,
+                    ((a.4 as u128 * b.4 as u128) >> 64) as u64,
+                    ((a.5 as u128 * b.5 as u128) >> 64) as u64,
+                    ((a.6 as u128 * b.6 as u128) >> 64) as u64,
+                    ((a.7 as u128 * b.7 as u128) >> 64) as u64,
+                ),
+            );
+        }
+    }
+
+    #[test]
+    fn test_mul_low_32_bits() {
+        if let Some(simd) = crate::V3::try_new() {
+            let a = u64x4(rnd(), rnd(), rnd(), rnd());
+            let b = u64x4(rnd(), rnd(), rnd(), rnd());
+            let res = simd.mul_low_32_bits_u64x4(a, b);
+            assert_eq!(
+                res,
+                u64x4(
+                    a.0 as u32 as u64 * b.0 as u32 as u64,
+                    a.1 as u32 as u64 * b.1 as u32 as u64,
+                    a.2 as u32 as u64 * b.2 as u32 as u64,
+                    a.3 as u32 as u64 * b.3 as u32 as u64,
+                ),
+            );
+        }
+        #[cfg(feature = "nightly")]
+        if let Some(simd) = crate::V4::try_new() {
+            let a = u64x8(rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd());
+            let b = u64x8(rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd(), rnd());
+            let res = simd.mul_low_32_bits_u64x8(a, b);
+            assert_eq!(
+                res,
+                u64x8(
+                    a.0 as u32 as u64 * b.0 as u32 as u64,
+                    a.1 as u32 as u64 * b.1 as u32 as u64,
+                    a.2 as u32 as u64 * b.2 as u32 as u64,
+                    a.3 as u32 as u64 * b.3 as u32 as u64,
+                    a.4 as u32 as u64 * b.4 as u32 as u64,
+                    a.5 as u32 as u64 * b.5 as u32 as u64,
+                    a.6 as u32 as u64 * b.6 as u32 as u64,
+                    a.7 as u32 as u64 * b.7 as u32 as u64,
+                ),
+            );
+        }
+    }
+
+    #[test]
+    fn test_mul_lhs_with_low_32_bits_of_rhs() {
+        if let Some(simd) = crate::V3::try_new() {
+            let a = u64x4(rnd(), rnd(), rnd(), rnd());
+            let b = u64x4(rnd(), rnd(), rnd(), rnd());
+            let res = simd.wrapping_mul_lhs_with_low_32_bits_of_rhs_u64x4(a, b);
+            assert_eq!(
+                res,
+                u64x4(
+                    u64::wrapping_mul(a.0, b.0 as u32 as u64),
+                    u64::wrapping_mul(a.1, b.1 as u32 as u64),
+                    u64::wrapping_mul(a.2, b.2 as u32 as u64),
+                    u64::wrapping_mul(a.3, b.3 as u32 as u64),
+                ),
+            );
         }
     }
 }

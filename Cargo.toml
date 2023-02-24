@@ -5,13 +5,12 @@ edition = "2021"
 
 [dependencies]
 aligned-vec = { version = "0.5", default-features = false }
-bytemuck = "1.13"
-pulp = { version = "0.10", default-features = false }
+pulp = { version = "0.11", default-features = false }
 
 [features]
 default = ["std"]
 std = ["pulp/std", "aligned-vec/std"]
-nightly = ["bytemuck/nightly_stdsimd", "pulp/nightly"]
+nightly = ["pulp/nightly"]
 
 [dev-dependencies]
 criterion = "0.4"

@@ -1,8 +1,7 @@
 use aligned_vec::avec;
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
-#[cfg(target_arch = "x86_64")]
-use core::arch::x86_64::*;
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+use pulp::x86::*;
 
 pub(crate) use crate::native32::mul_mod32;
 
@@ -25,7 +24,7 @@ pub struct Plan32(
 /// Negacyclic NTT plan for multiplying two 64bit polynomials.  
 /// This can be more efficient than [`Plan32`], but requires the AVX512 instruction set.
 #[cfg(any(
-    doc,
+    all(feature = "nightly", doc),
     all(feature = "nightly", any(target_arch = "x86", target_arch = "x86_64"))
 ))]
 #[cfg_attr(docsrs, doc(cfg(feature = "nightly")))]
@@ -34,7 +33,7 @@ pub struct Plan52(
     crate::prime64::Plan,
     crate::prime64::Plan,
     crate::prime64::Plan,
-    crate::Avx512,
+    crate::V4IFma,
 );
 
 #[inline(always)]
@@ -147,254 +146,244 @@ fn reconstruct_32bit_01234_v2(
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
 pub(crate) fn mul_mod32_v2_avx2(
-    simd: crate::Avx2,
-    p: __m256i,
-    a: __m256i,
-    b: __m256i,
-    b_shoup: __m256i,
-) -> __m256i {
-    let shoup_q = simd
-        .avx2
-        ._mm256_srli_epi64::<32>(simd.avx2._mm256_mul_epu32(a, b_shoup));
-    let t = simd.avx2._mm256_and_si256(
-        simd.avx._mm256_setr_epi32(-1, 0, -1, 0, -1, 0, -1, 0),
-        simd.avx2._mm256_sub_epi32(
-            simd.avx2._mm256_mul_epu32(a, b),
-            simd.avx2._mm256_mul_epu32(shoup_q, p),
+    simd: crate::V3,
+    p: u64x4,
+    a: u64x4,
+    b: u64x4,
+    b_shoup: u64x4,
+) -> u64x4 {
+    let shoup_q = simd.shr_const_u64x4::<32>(simd.mul_low_32_bits_u64x4(a, b_shoup));
+    let t = simd.and_u64x4(
+        simd.splat_u64x4((1u64 << 32) - 1),
+        simd.wrapping_sub_u64x4(
+            simd.mul_low_32_bits_u64x4(a, b),
+            simd.mul_low_32_bits_u64x4(shoup_q, p),
         ),
     );
-    simd.small_mod_epu32(p, t)
+    simd.small_mod_u64x4(p, t)
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 #[inline(always)]
 pub(crate) fn mul_mod32_v2_avx512(
-    simd: crate::Avx512,
-    p: __m512i,
-    a: __m512i,
-    b: __m512i,
-    b_shoup: __m512i,
-) -> __m512i {
-    let avx = simd.avx512f;
-    let shoup_q = avx._mm512_srli_epi64::<32>(avx._mm512_mul_epu32(a, b_shoup));
-    let t = avx._mm512_and_si512(
-        avx._mm512_setr_epi32(-1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0),
-        avx._mm512_sub_epi32(avx._mm512_mul_epu32(a, b), avx._mm512_mul_epu32(shoup_q, p)),
+    simd: crate::V4IFma,
+    p: u64x8,
+    a: u64x8,
+    b: u64x8,
+    b_shoup: u64x8,
+) -> u64x8 {
+    let shoup_q = simd.shr_const_u64x8::<32>(simd.mul_low_32_bits_u64x8(a, b_shoup));
+    let t = simd.and_u64x8(
+        simd.splat_u64x8((1u64 << 32) - 1),
+        simd.wrapping_sub_u64x8(
+            simd.mul_low_32_bits_u64x8(a, b),
+            simd.mul_low_32_bits_u64x8(shoup_q, p),
+        ),
     );
-    simd.small_mod_epu32(p, t)
+    simd.small_mod_u64x8(p, t)
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
 pub(crate) fn mul_mod64_avx2(
-    simd: crate::Avx2,
-    p: __m256i,
-    a: __m256i,
-    b: __m256i,
-    b_shoup: __m256i,
-) -> __m256i {
-    let q = simd._mm256_mul_u64_u64_epu64(a, b_shoup).1;
-    let r = simd.avx2._mm256_sub_epi64(
-        simd._mm256_mul_u64_u64_epu64(a, b).0,
-        simd._mm256_mul_u64_u64_epu64(p, q).0,
+    simd: crate::V3,
+    p: u64x4,
+    a: u64x4,
+    b: u64x4,
+    b_shoup: u64x4,
+) -> u64x4 {
+    let q = simd.widening_mul_u64x4(a, b_shoup).1;
+    let r = simd.wrapping_sub_u64x4(
+        simd.widening_mul_u64x4(a, b).0,
+        simd.widening_mul_u64x4(p, q).0,
     );
-    simd.small_mod_epu64(p, r)
+    simd.small_mod_u64x4(p, r)
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 #[inline(always)]
 pub(crate) fn mul_mod64_avx512(
-    simd: crate::Avx512,
-    p: __m512i,
-    a: __m512i,
-    b: __m512i,
-    b_shoup: __m512i,
-) -> __m512i {
-    let avx = simd.avx512f;
-    let q = simd._mm512_mul_u64_u64_epu64(a, b_shoup).1;
-    let r = avx._mm512_sub_epi64(avx._mm512_mullox_epi64(a, b), avx._mm512_mullox_epi64(p, q));
-    simd.small_mod_epu64(p, r)
+    simd: crate::V4IFma,
+    p: u64x8,
+    a: u64x8,
+    b: u64x8,
+    b_shoup: u64x8,
+) -> u64x8 {
+    let q = simd.widening_mul_u64x8(a, b_shoup).1;
+    let r = simd.wrapping_sub_u64x8(simd.wrapping_mul_u64x8(a, b), simd.wrapping_mul_u64x8(p, q));
+    simd.small_mod_u64x8(p, r)
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
 fn reconstruct_32bit_01234_v2_avx2(
-    simd: crate::Avx2,
-    mod_p0: __m128i,
-    mod_p1: __m128i,
-    mod_p2: __m128i,
-    mod_p3: __m128i,
-    mod_p4: __m128i,
-) -> __m256i {
+    simd: crate::V3,
+    mod_p0: u32x4,
+    mod_p1: u32x4,
+    mod_p2: u32x4,
+    mod_p3: u32x4,
+    mod_p4: u32x4,
+) -> u64x4 {
     use crate::primes32::*;
 
-    let avx = simd.avx2;
+    let p0 = simd.splat_u64x4(P0 as u64);
+    let p1 = simd.splat_u64x4(P1 as u64);
+    let p2 = simd.splat_u64x4(P2 as u64);
+    let p3 = simd.splat_u64x4(P3 as u64);
+    let p4 = simd.splat_u64x4(P4 as u64);
+    let p12 = simd.splat_u64x4(P12);
+    let p34 = simd.splat_u64x4(P34);
+    let p012 = simd.splat_u64x4((P0 as u64).wrapping_mul(P12));
+    let p01234 = simd.splat_u64x4((P0 as u64).wrapping_mul(P12).wrapping_mul(P34));
 
-    let p0 = simd.avx._mm256_set1_epi64x(P0 as i64);
-    let p1 = simd.avx._mm256_set1_epi64x(P1 as i64);
-    let p2 = simd.avx._mm256_set1_epi64x(P2 as i64);
-    let p3 = simd.avx._mm256_set1_epi64x(P3 as i64);
-    let p4 = simd.avx._mm256_set1_epi64x(P4 as i64);
-    let p12 = simd.avx._mm256_set1_epi64x(P12 as i64);
-    let p34 = simd.avx._mm256_set1_epi64x(P34 as i64);
-    let p012 = simd
-        .avx
-        ._mm256_set1_epi64x((P0 as u64).wrapping_mul(P12) as i64);
-    let p01234 = simd
-        .avx
-        ._mm256_set1_epi64x((P0 as u64).wrapping_mul(P12).wrapping_mul(P34) as i64);
+    let two_p2 = simd.splat_u64x4(2 * P2 as u64);
+    let two_p4 = simd.splat_u64x4(2 * P4 as u64);
+    let two_p12 = simd.splat_u64x4(2 * P12);
+    let two_p34 = simd.splat_u64x4(2 * P34);
+    let half_p34 = simd.splat_u64x4(P34 / 2);
 
-    let two_p2 = simd.avx._mm256_set1_epi64x((2 * P2) as i64);
-    let two_p4 = simd.avx._mm256_set1_epi64x((2 * P4) as i64);
-    let two_p12 = simd.avx._mm256_set1_epi64x((2 * P12) as i64);
-    let two_p34 = simd.avx._mm256_set1_epi64x((2 * P34) as i64);
-    let half_p34 = simd.avx._mm256_set1_epi64x((P34 / 2) as i64);
+    let p0_inv_mod_p12 = simd.splat_u64x4(P0_INV_MOD_P12);
+    let p0_inv_mod_p12_shoup = simd.splat_u64x4(P0_INV_MOD_P12_SHOUP);
+    let p1_inv_mod_p2 = simd.splat_u64x4(P1_INV_MOD_P2 as u64);
+    let p1_inv_mod_p2_shoup = simd.splat_u64x4(P1_INV_MOD_P2_SHOUP as u64);
+    let p3_inv_mod_p4 = simd.splat_u64x4(P3_INV_MOD_P4 as u64);
+    let p3_inv_mod_p4_shoup = simd.splat_u64x4(P3_INV_MOD_P4_SHOUP as u64);
 
-    let p0_inv_mod_p12 = simd.avx._mm256_set1_epi64x(P0_INV_MOD_P12 as i64);
-    let p0_inv_mod_p12_shoup = simd.avx._mm256_set1_epi64x(P0_INV_MOD_P12_SHOUP as i64);
-    let p1_inv_mod_p2 = simd.avx._mm256_set1_epi64x(P1_INV_MOD_P2 as i64);
-    let p1_inv_mod_p2_shoup = simd.avx._mm256_set1_epi64x(P1_INV_MOD_P2_SHOUP as i64);
-    let p3_inv_mod_p4 = simd.avx._mm256_set1_epi64x(P3_INV_MOD_P4 as i64);
-    let p3_inv_mod_p4_shoup = simd.avx._mm256_set1_epi64x(P3_INV_MOD_P4_SHOUP as i64);
+    let p012_inv_mod_p34 = simd.splat_u64x4(P012_INV_MOD_P34);
+    let p012_inv_mod_p34_shoup = simd.splat_u64x4(P012_INV_MOD_P34_SHOUP);
+    let p0_mod_p34_shoup = simd.splat_u64x4(P0_MOD_P34_SHOUP);
 
-    let p012_inv_mod_p34 = simd.avx._mm256_set1_epi64x(P012_INV_MOD_P34 as i64);
-    let p012_inv_mod_p34_shoup = simd.avx._mm256_set1_epi64x(P012_INV_MOD_P34_SHOUP as i64);
-    let p0_mod_p34_shoup = simd.avx._mm256_set1_epi64x(P0_MOD_P34_SHOUP as i64);
-
-    let mod_p0 = avx._mm256_cvtepu32_epi64(mod_p0);
-    let mod_p1 = avx._mm256_cvtepu32_epi64(mod_p1);
-    let mod_p2 = avx._mm256_cvtepu32_epi64(mod_p2);
-    let mod_p3 = avx._mm256_cvtepu32_epi64(mod_p3);
-    let mod_p4 = avx._mm256_cvtepu32_epi64(mod_p4);
+    let mod_p0 = simd.convert_u32x4_to_u64x4(mod_p0);
+    let mod_p1 = simd.convert_u32x4_to_u64x4(mod_p1);
+    let mod_p2 = simd.convert_u32x4_to_u64x4(mod_p2);
+    let mod_p3 = simd.convert_u32x4_to_u64x4(mod_p3);
+    let mod_p4 = simd.convert_u32x4_to_u64x4(mod_p4);
 
     let mod_p12 = {
         let v1 = mod_p1;
         let v2 = mul_mod32_v2_avx2(
             simd,
             p2,
-            avx._mm256_sub_epi32(avx._mm256_add_epi32(two_p2, mod_p2), v1),
+            simd.wrapping_sub_u64x4(simd.wrapping_add_u64x4(two_p2, mod_p2), v1),
             p1_inv_mod_p2,
             p1_inv_mod_p2_shoup,
         );
-        avx._mm256_add_epi64(v1, simd._mm256_mullo_u64_u32_epu64(v2, p1))
+        simd.wrapping_add_u64x4(v1, simd.mul_low_32_bits_u64x4(v2, p1))
     };
     let mod_p34 = {
         let v3 = mod_p3;
         let v4 = mul_mod32_v2_avx2(
             simd,
             p4,
-            avx._mm256_sub_epi32(avx._mm256_add_epi32(two_p4, mod_p4), v3),
+            simd.wrapping_sub_u64x4(simd.wrapping_add_u64x4(two_p4, mod_p4), v3),
             p3_inv_mod_p4,
             p3_inv_mod_p4_shoup,
         );
-        avx._mm256_add_epi64(v3, simd._mm256_mullo_u64_u32_epu64(v4, p3))
+        simd.wrapping_add_u64x4(v3, simd.mul_low_32_bits_u64x4(v4, p3))
     };
 
     let v0 = mod_p0;
     let v12 = mul_mod64_avx2(
         simd,
         p12,
-        avx._mm256_sub_epi64(avx._mm256_add_epi64(two_p12, mod_p12), v0),
+        simd.wrapping_sub_u64x4(simd.wrapping_add_u64x4(two_p12, mod_p12), v0),
         p0_inv_mod_p12,
         p0_inv_mod_p12_shoup,
     );
     let v34 = mul_mod64_avx2(
         simd,
         p34,
-        avx._mm256_sub_epi64(
-            avx._mm256_add_epi64(two_p34, mod_p34),
-            avx._mm256_add_epi64(v0, mul_mod64_avx2(simd, p34, v12, p0, p0_mod_p34_shoup)),
+        simd.wrapping_sub_u64x4(
+            simd.wrapping_add_u64x4(two_p34, mod_p34),
+            simd.wrapping_add_u64x4(v0, mul_mod64_avx2(simd, p34, v12, p0, p0_mod_p34_shoup)),
         ),
         p012_inv_mod_p34,
         p012_inv_mod_p34_shoup,
     );
 
-    let sign = simd._mm256_cmpgt_epu64(v34, half_p34);
+    let sign = simd.cmp_gt_u64x4(v34, half_p34);
     let pos = v0;
-    let pos = avx._mm256_add_epi64(pos, simd._mm256_mullo_u64_u32_epu64(v12, p0));
-    let pos = avx._mm256_add_epi64(pos, simd._mm256_mul_u64_u64_epu64(v34, p012).0);
-    let neg = avx._mm256_sub_epi64(pos, p01234);
-    avx._mm256_blendv_epi8(pos, neg, sign)
+    let pos = simd.wrapping_add_u64x4(
+        pos,
+        simd.wrapping_mul_lhs_with_low_32_bits_of_rhs_u64x4(v12, p0),
+    );
+    let pos = simd.wrapping_add_u64x4(pos, simd.widening_mul_u64x4(v34, p012).0);
+    let neg = simd.wrapping_sub_u64x4(pos, p01234);
+    simd.select_u64x4(sign, neg, pos)
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(dead_code)]
 #[inline(always)]
 fn reconstruct_32bit_01234_avx2(
-    simd: crate::Avx2,
-    mod_p0: __m256i,
-    mod_p1: __m256i,
-    mod_p2: __m256i,
-    mod_p3: __m256i,
-    mod_p4: __m256i,
-) -> [__m256i; 2] {
+    simd: crate::V3,
+    mod_p0: u32x8,
+    mod_p1: u32x8,
+    mod_p2: u32x8,
+    mod_p3: u32x8,
+    mod_p4: u32x8,
+) -> [u64x4; 2] {
     use crate::primes32::*;
 
-    let avx = simd.avx2;
+    let p0 = simd.splat_u32x8(P0);
+    let p1 = simd.splat_u32x8(P1);
+    let p2 = simd.splat_u32x8(P2);
+    let p3 = simd.splat_u32x8(P3);
+    let p4 = simd.splat_u32x8(P4);
+    let two_p1 = simd.splat_u32x8(2 * P1);
+    let two_p2 = simd.splat_u32x8(2 * P2);
+    let two_p3 = simd.splat_u32x8(2 * P3);
+    let two_p4 = simd.splat_u32x8(2 * P4);
+    let half_p4 = simd.splat_u32x8(P4 / 2);
 
-    let p0 = simd.avx._mm256_set1_epi32(P0 as i32);
-    let p1 = simd.avx._mm256_set1_epi32(P1 as i32);
-    let p2 = simd.avx._mm256_set1_epi32(P2 as i32);
-    let p3 = simd.avx._mm256_set1_epi32(P3 as i32);
-    let p4 = simd.avx._mm256_set1_epi32(P4 as i32);
-    let two_p1 = simd.avx._mm256_set1_epi32((2 * P1) as i32);
-    let two_p2 = simd.avx._mm256_set1_epi32((2 * P2) as i32);
-    let two_p3 = simd.avx._mm256_set1_epi32((2 * P3) as i32);
-    let two_p4 = simd.avx._mm256_set1_epi32((2 * P4) as i32);
-    let half_p4 = simd.avx._mm256_set1_epi32((P4 / 2) as i32);
+    let p0_inv_mod_p1 = simd.splat_u32x8(P0_INV_MOD_P1);
+    let p0_inv_mod_p1_shoup = simd.splat_u32x8(P0_INV_MOD_P1_SHOUP);
+    let p0_mod_p2_shoup = simd.splat_u32x8(P0_MOD_P2_SHOUP);
+    let p0_mod_p3_shoup = simd.splat_u32x8(P0_MOD_P3_SHOUP);
+    let p1_mod_p3_shoup = simd.splat_u32x8(P1_MOD_P3_SHOUP);
+    let p0_mod_p4_shoup = simd.splat_u32x8(P0_MOD_P4_SHOUP);
+    let p1_mod_p4_shoup = simd.splat_u32x8(P1_MOD_P4_SHOUP);
+    let p2_mod_p4_shoup = simd.splat_u32x8(P2_MOD_P4_SHOUP);
 
-    let p0_inv_mod_p1 = simd.avx._mm256_set1_epi32(P0_INV_MOD_P1 as i32);
-    let p0_inv_mod_p1_shoup = simd.avx._mm256_set1_epi32(P0_INV_MOD_P1_SHOUP as i32);
-    let p0_mod_p2_shoup = simd.avx._mm256_set1_epi32(P0_MOD_P2_SHOUP as i32);
-    let p0_mod_p3_shoup = simd.avx._mm256_set1_epi32(P0_MOD_P3_SHOUP as i32);
-    let p1_mod_p3_shoup = simd.avx._mm256_set1_epi32(P1_MOD_P3_SHOUP as i32);
-    let p0_mod_p4_shoup = simd.avx._mm256_set1_epi32(P0_MOD_P4_SHOUP as i32);
-    let p1_mod_p4_shoup = simd.avx._mm256_set1_epi32(P1_MOD_P4_SHOUP as i32);
-    let p2_mod_p4_shoup = simd.avx._mm256_set1_epi32(P2_MOD_P4_SHOUP as i32);
+    let p01_inv_mod_p2 = simd.splat_u32x8(P01_INV_MOD_P2);
+    let p01_inv_mod_p2_shoup = simd.splat_u32x8(P01_INV_MOD_P2_SHOUP);
+    let p012_inv_mod_p3 = simd.splat_u32x8(P012_INV_MOD_P3);
+    let p012_inv_mod_p3_shoup = simd.splat_u32x8(P012_INV_MOD_P3_SHOUP);
+    let p0123_inv_mod_p4 = simd.splat_u32x8(P0123_INV_MOD_P4);
+    let p0123_inv_mod_p4_shoup = simd.splat_u32x8(P0123_INV_MOD_P4_SHOUP);
 
-    let p01_inv_mod_p2 = simd.avx._mm256_set1_epi32(P01_INV_MOD_P2 as i32);
-    let p01_inv_mod_p2_shoup = simd.avx._mm256_set1_epi32(P01_INV_MOD_P2_SHOUP as i32);
-    let p012_inv_mod_p3 = simd.avx._mm256_set1_epi32(P012_INV_MOD_P3 as i32);
-    let p012_inv_mod_p3_shoup = simd.avx._mm256_set1_epi32(P012_INV_MOD_P3_SHOUP as i32);
-    let p0123_inv_mod_p4 = simd.avx._mm256_set1_epi32(P0123_INV_MOD_P4 as i32);
-    let p0123_inv_mod_p4_shoup = simd.avx._mm256_set1_epi32(P0123_INV_MOD_P4_SHOUP as i32);
-
-    let p01 = simd
-        .avx
-        ._mm256_set1_epi64x((P0 as u64).wrapping_mul(P1 as u64) as i64);
-    let p012 = simd
-        .avx
-        ._mm256_set1_epi64x((P0 as u64).wrapping_mul(P1 as u64).wrapping_mul(P2 as u64) as i64);
-    let p0123 = simd.avx._mm256_set1_epi64x(
+    let p01 = simd.splat_u64x4((P0 as u64).wrapping_mul(P1 as u64));
+    let p012 = simd.splat_u64x4((P0 as u64).wrapping_mul(P1 as u64).wrapping_mul(P2 as u64));
+    let p0123 = simd.splat_u64x4(
         (P0 as u64)
             .wrapping_mul(P1 as u64)
             .wrapping_mul(P2 as u64)
-            .wrapping_mul(P3 as u64) as i64,
+            .wrapping_mul(P3 as u64),
     );
-    let p01234 = simd.avx._mm256_set1_epi64x(
+    let p01234 = simd.splat_u64x4(
         (P0 as u64)
             .wrapping_mul(P1 as u64)
             .wrapping_mul(P2 as u64)
             .wrapping_mul(P3 as u64)
-            .wrapping_mul(P4 as u64) as i64,
+            .wrapping_mul(P4 as u64),
     );
 
     let v0 = mod_p0;
     let v1 = mul_mod32_avx2(
         simd,
         p1,
-        avx._mm256_sub_epi32(avx._mm256_add_epi32(two_p1, mod_p1), v0),
+        simd.wrapping_sub_u32x8(simd.wrapping_add_u32x8(two_p1, mod_p1), v0),
         p0_inv_mod_p1,
         p0_inv_mod_p1_shoup,
     );
     let v2 = mul_mod32_avx2(
         simd,
         p2,
-        avx._mm256_sub_epi32(
-            avx._mm256_add_epi32(two_p2, mod_p2),
-            avx._mm256_add_epi32(v0, mul_mod32_avx2(simd, p2, v1, p0, p0_mod_p2_shoup)),
+        simd.wrapping_sub_u32x8(
+            simd.wrapping_add_u32x8(two_p2, mod_p2),
+            simd.wrapping_add_u32x8(v0, mul_mod32_avx2(simd, p2, v1, p0, p0_mod_p2_shoup)),
         ),
         p01_inv_mod_p2,
         p01_inv_mod_p2_shoup,
@@ -402,14 +391,14 @@ fn reconstruct_32bit_01234_avx2(
     let v3 = mul_mod32_avx2(
         simd,
         p3,
-        avx._mm256_sub_epi32(
-            avx._mm256_add_epi32(two_p3, mod_p3),
-            avx._mm256_add_epi32(
+        simd.wrapping_sub_u32x8(
+            simd.wrapping_add_u32x8(two_p3, mod_p3),
+            simd.wrapping_add_u32x8(
                 v0,
                 mul_mod32_avx2(
                     simd,
                     p3,
-                    avx._mm256_add_epi32(v1, mul_mod32_avx2(simd, p3, v2, p1, p1_mod_p3_shoup)),
+                    simd.wrapping_add_u32x8(v1, mul_mod32_avx2(simd, p3, v2, p1, p1_mod_p3_shoup)),
                     p0,
                     p0_mod_p3_shoup,
                 ),
@@ -421,19 +410,19 @@ fn reconstruct_32bit_01234_avx2(
     let v4 = mul_mod32_avx2(
         simd,
         p4,
-        avx._mm256_sub_epi32(
-            avx._mm256_add_epi32(two_p4, mod_p4),
-            avx._mm256_add_epi32(
+        simd.wrapping_sub_u32x8(
+            simd.wrapping_add_u32x8(two_p4, mod_p4),
+            simd.wrapping_add_u32x8(
                 v0,
                 mul_mod32_avx2(
                     simd,
                     p4,
-                    avx._mm256_add_epi32(
+                    simd.wrapping_add_u32x8(
                         v1,
                         mul_mod32_avx2(
                             simd,
                             p4,
-                            avx._mm256_add_epi32(
+                            simd.wrapping_add_u32x8(
                                 v2,
                                 mul_mod32_avx2(simd, p4, v3, p2, p2_mod_p4_shoup),
                             ),
@@ -450,40 +439,64 @@ fn reconstruct_32bit_01234_avx2(
         p0123_inv_mod_p4_shoup,
     );
 
-    let sign = simd._mm256_cmpgt_epu32(v4, half_p4);
+    let sign = simd.cmp_gt_u32x8(v4, half_p4);
+    let sign: [i32x4; 2] = pulp::cast(sign);
     // sign extend so that -1i32 becomes -1i64
-    let sign0 = avx._mm256_cvtepi32_epi64(simd.avx._mm256_castsi256_si128(sign));
-    let sign1 = avx._mm256_cvtepi32_epi64(simd.avx._mm256_extractf128_si256::<1>(sign));
+    let sign0: m64x4 = pulp::cast(simd.convert_i32x4_to_i64x4(sign[0]));
+    let sign1: m64x4 = pulp::cast(simd.convert_i32x4_to_i64x4(sign[1]));
 
-    let v00 = avx._mm256_cvtepu32_epi64(simd.avx._mm256_castsi256_si128(v0));
-    let v01 = avx._mm256_cvtepu32_epi64(simd.avx._mm256_extractf128_si256::<1>(v0));
-    let v10 = avx._mm256_cvtepu32_epi64(simd.avx._mm256_castsi256_si128(v1));
-    let v11 = avx._mm256_cvtepu32_epi64(simd.avx._mm256_extractf128_si256::<1>(v1));
-    let v20 = avx._mm256_cvtepu32_epi64(simd.avx._mm256_castsi256_si128(v2));
-    let v21 = avx._mm256_cvtepu32_epi64(simd.avx._mm256_extractf128_si256::<1>(v2));
-    let v30 = avx._mm256_cvtepu32_epi64(simd.avx._mm256_castsi256_si128(v3));
-    let v31 = avx._mm256_cvtepu32_epi64(simd.avx._mm256_extractf128_si256::<1>(v3));
-    let v40 = avx._mm256_cvtepu32_epi64(simd.avx._mm256_castsi256_si128(v4));
-    let v41 = avx._mm256_cvtepu32_epi64(simd.avx._mm256_extractf128_si256::<1>(v4));
+    let v0: [u32x4; 2] = pulp::cast(v0);
+    let v1: [u32x4; 2] = pulp::cast(v1);
+    let v2: [u32x4; 2] = pulp::cast(v2);
+    let v3: [u32x4; 2] = pulp::cast(v3);
+    let v4: [u32x4; 2] = pulp::cast(v4);
+    let v00 = simd.convert_u32x4_to_u64x4(v0[0]);
+    let v01 = simd.convert_u32x4_to_u64x4(v0[1]);
+    let v10 = simd.convert_u32x4_to_u64x4(v1[0]);
+    let v11 = simd.convert_u32x4_to_u64x4(v1[1]);
+    let v20 = simd.convert_u32x4_to_u64x4(v2[0]);
+    let v21 = simd.convert_u32x4_to_u64x4(v2[1]);
+    let v30 = simd.convert_u32x4_to_u64x4(v3[0]);
+    let v31 = simd.convert_u32x4_to_u64x4(v3[1]);
+    let v40 = simd.convert_u32x4_to_u64x4(v4[0]);
+    let v41 = simd.convert_u32x4_to_u64x4(v4[1]);
 
     let pos0 = v00;
-    let pos0 = avx._mm256_add_epi64(pos0, avx._mm256_mul_epi32(p0, v10));
-    let pos0 = avx._mm256_add_epi64(pos0, simd._mm256_mullo_u64_u32_epu64(p01, v20));
-    let pos0 = avx._mm256_add_epi64(pos0, simd._mm256_mullo_u64_u32_epu64(p012, v30));
-    let pos0 = avx._mm256_add_epi64(pos0, simd._mm256_mullo_u64_u32_epu64(p0123, v40));
+    let pos0 = simd.wrapping_add_u64x4(pos0, simd.mul_low_32_bits_u64x4(pulp::cast(p0), v10));
+    let pos0 = simd.wrapping_add_u64x4(
+        pos0,
+        simd.wrapping_mul_lhs_with_low_32_bits_of_rhs_u64x4(p01, v20),
+    );
+    let pos0 = simd.wrapping_add_u64x4(
+        pos0,
+        simd.wrapping_mul_lhs_with_low_32_bits_of_rhs_u64x4(p012, v30),
+    );
+    let pos0 = simd.wrapping_add_u64x4(
+        pos0,
+        simd.wrapping_mul_lhs_with_low_32_bits_of_rhs_u64x4(p0123, v40),
+    );
 
     let pos1 = v01;
-    let pos1 = avx._mm256_add_epi64(pos1, avx._mm256_mul_epi32(p0, v11));
-    let pos1 = avx._mm256_add_epi64(pos1, simd._mm256_mullo_u64_u32_epu64(p01, v21));
-    let pos1 = avx._mm256_add_epi64(pos1, simd._mm256_mullo_u64_u32_epu64(p012, v31));
-    let pos1 = avx._mm256_add_epi64(pos1, simd._mm256_mullo_u64_u32_epu64(p0123, v41));
+    let pos1 = simd.wrapping_add_u64x4(pos1, simd.mul_low_32_bits_u64x4(pulp::cast(p0), v11));
+    let pos1 = simd.wrapping_add_u64x4(
+        pos1,
+        simd.wrapping_mul_lhs_with_low_32_bits_of_rhs_u64x4(p01, v21),
+    );
+    let pos1 = simd.wrapping_add_u64x4(
+        pos1,
+        simd.wrapping_mul_lhs_with_low_32_bits_of_rhs_u64x4(p012, v31),
+    );
+    let pos1 = simd.wrapping_add_u64x4(
+        pos1,
+        simd.wrapping_mul_lhs_with_low_32_bits_of_rhs_u64x4(p0123, v41),
+    );
 
-    let neg0 = avx._mm256_sub_epi64(pos0, p01234);
-    let neg1 = avx._mm256_sub_epi64(pos1, p01234);
+    let neg0 = simd.wrapping_sub_u64x4(pos0, p01234);
+    let neg1 = simd.wrapping_sub_u64x4(pos1, p01234);
 
     [
-        avx._mm256_blendv_epi8(pos0, neg0, sign0),
-        avx._mm256_blendv_epi8(pos1, neg1, sign1),
+        simd.select_u64x4(sign0, neg0, pos0),
+        simd.select_u64x4(sign1, neg1, pos1),
     ]
 }
 
@@ -492,75 +505,72 @@ fn reconstruct_32bit_01234_avx2(
 #[allow(dead_code)]
 #[inline(always)]
 fn reconstruct_32bit_01234_avx512(
-    simd: crate::Avx512,
-    mod_p0: __m512i,
-    mod_p1: __m512i,
-    mod_p2: __m512i,
-    mod_p3: __m512i,
-    mod_p4: __m512i,
-) -> [__m512i; 2] {
+    simd: crate::V4IFma,
+    mod_p0: u32x16,
+    mod_p1: u32x16,
+    mod_p2: u32x16,
+    mod_p3: u32x16,
+    mod_p4: u32x16,
+) -> [u64x8; 2] {
     use crate::primes32::*;
 
-    let avx = simd.avx512f;
+    let p0 = simd.splat_u32x16(P0);
+    let p1 = simd.splat_u32x16(P1);
+    let p2 = simd.splat_u32x16(P2);
+    let p3 = simd.splat_u32x16(P3);
+    let p4 = simd.splat_u32x16(P4);
+    let two_p1 = simd.splat_u32x16(2 * P1);
+    let two_p2 = simd.splat_u32x16(2 * P2);
+    let two_p3 = simd.splat_u32x16(2 * P3);
+    let two_p4 = simd.splat_u32x16(2 * P4);
+    let half_p4 = simd.splat_u32x16(P4 / 2);
 
-    let p0 = avx._mm512_set1_epi32(P0 as i32);
-    let p1 = avx._mm512_set1_epi32(P1 as i32);
-    let p2 = avx._mm512_set1_epi32(P2 as i32);
-    let p3 = avx._mm512_set1_epi32(P3 as i32);
-    let p4 = avx._mm512_set1_epi32(P4 as i32);
-    let two_p1 = avx._mm512_set1_epi32((2 * P1) as i32);
-    let two_p2 = avx._mm512_set1_epi32((2 * P2) as i32);
-    let two_p3 = avx._mm512_set1_epi32((2 * P3) as i32);
-    let two_p4 = avx._mm512_set1_epi32((2 * P4) as i32);
-    let half_p4 = avx._mm512_set1_epi32((P4 / 2) as i32);
+    let p0_inv_mod_p1 = simd.splat_u32x16(P0_INV_MOD_P1);
+    let p0_inv_mod_p1_shoup = simd.splat_u32x16(P0_INV_MOD_P1_SHOUP);
+    let p0_mod_p2_shoup = simd.splat_u32x16(P0_MOD_P2_SHOUP);
+    let p0_mod_p3_shoup = simd.splat_u32x16(P0_MOD_P3_SHOUP);
+    let p1_mod_p3_shoup = simd.splat_u32x16(P1_MOD_P3_SHOUP);
+    let p0_mod_p4_shoup = simd.splat_u32x16(P0_MOD_P4_SHOUP);
+    let p1_mod_p4_shoup = simd.splat_u32x16(P1_MOD_P4_SHOUP);
+    let p2_mod_p4_shoup = simd.splat_u32x16(P2_MOD_P4_SHOUP);
 
-    let p0_inv_mod_p1 = avx._mm512_set1_epi32(P0_INV_MOD_P1 as i32);
-    let p0_inv_mod_p1_shoup = avx._mm512_set1_epi32(P0_INV_MOD_P1_SHOUP as i32);
-    let p0_mod_p2_shoup = avx._mm512_set1_epi32(P0_MOD_P2_SHOUP as i32);
-    let p0_mod_p3_shoup = avx._mm512_set1_epi32(P0_MOD_P3_SHOUP as i32);
-    let p1_mod_p3_shoup = avx._mm512_set1_epi32(P1_MOD_P3_SHOUP as i32);
-    let p0_mod_p4_shoup = avx._mm512_set1_epi32(P0_MOD_P4_SHOUP as i32);
-    let p1_mod_p4_shoup = avx._mm512_set1_epi32(P1_MOD_P4_SHOUP as i32);
-    let p2_mod_p4_shoup = avx._mm512_set1_epi32(P2_MOD_P4_SHOUP as i32);
+    let p01_inv_mod_p2 = simd.splat_u32x16(P01_INV_MOD_P2);
+    let p01_inv_mod_p2_shoup = simd.splat_u32x16(P01_INV_MOD_P2_SHOUP);
+    let p012_inv_mod_p3 = simd.splat_u32x16(P012_INV_MOD_P3);
+    let p012_inv_mod_p3_shoup = simd.splat_u32x16(P012_INV_MOD_P3_SHOUP);
+    let p0123_inv_mod_p4 = simd.splat_u32x16(P0123_INV_MOD_P4);
+    let p0123_inv_mod_p4_shoup = simd.splat_u32x16(P0123_INV_MOD_P4_SHOUP);
 
-    let p01_inv_mod_p2 = avx._mm512_set1_epi32(P01_INV_MOD_P2 as i32);
-    let p01_inv_mod_p2_shoup = avx._mm512_set1_epi32(P01_INV_MOD_P2_SHOUP as i32);
-    let p012_inv_mod_p3 = avx._mm512_set1_epi32(P012_INV_MOD_P3 as i32);
-    let p012_inv_mod_p3_shoup = avx._mm512_set1_epi32(P012_INV_MOD_P3_SHOUP as i32);
-    let p0123_inv_mod_p4 = avx._mm512_set1_epi32(P0123_INV_MOD_P4 as i32);
-    let p0123_inv_mod_p4_shoup = avx._mm512_set1_epi32(P0123_INV_MOD_P4_SHOUP as i32);
-
-    let p01 = avx._mm512_set1_epi64((P0 as u64).wrapping_mul(P1 as u64) as i64);
-    let p012 =
-        avx._mm512_set1_epi64((P0 as u64).wrapping_mul(P1 as u64).wrapping_mul(P2 as u64) as i64);
-    let p0123 = avx._mm512_set1_epi64(
+    let p01 = simd.splat_u64x8((P0 as u64).wrapping_mul(P1 as u64));
+    let p012 = simd.splat_u64x8((P0 as u64).wrapping_mul(P1 as u64).wrapping_mul(P2 as u64));
+    let p0123 = simd.splat_u64x8(
         (P0 as u64)
             .wrapping_mul(P1 as u64)
             .wrapping_mul(P2 as u64)
-            .wrapping_mul(P3 as u64) as i64,
+            .wrapping_mul(P3 as u64),
     );
-    let p01234 = avx._mm512_set1_epi64(
+    let p01234 = simd.splat_u64x8(
         (P0 as u64)
             .wrapping_mul(P1 as u64)
             .wrapping_mul(P2 as u64)
             .wrapping_mul(P3 as u64)
-            .wrapping_mul(P4 as u64) as i64,
+            .wrapping_mul(P4 as u64),
     );
 
     let v0 = mod_p0;
     let v1 = mul_mod32_avx512(
         simd,
         p1,
-        avx._mm512_sub_epi32(avx._mm512_add_epi32(two_p1, mod_p1), v0),
+        simd.wrapping_sub_u32x16(simd.wrapping_add_u32x16(two_p1, mod_p1), v0),
         p0_inv_mod_p1,
         p0_inv_mod_p1_shoup,
     );
     let v2 = mul_mod32_avx512(
         simd,
         p2,
-        avx._mm512_sub_epi32(
-            avx._mm512_add_epi32(two_p2, mod_p2),
-            avx._mm512_add_epi32(v0, mul_mod32_avx512(simd, p2, v1, p0, p0_mod_p2_shoup)),
+        simd.wrapping_sub_u32x16(
+            simd.wrapping_add_u32x16(two_p2, mod_p2),
+            simd.wrapping_add_u32x16(v0, mul_mod32_avx512(simd, p2, v1, p0, p0_mod_p2_shoup)),
         ),
         p01_inv_mod_p2,
         p01_inv_mod_p2_shoup,
@@ -568,14 +578,17 @@ fn reconstruct_32bit_01234_avx512(
     let v3 = mul_mod32_avx512(
         simd,
         p3,
-        avx._mm512_sub_epi32(
-            avx._mm512_add_epi32(two_p3, mod_p3),
-            avx._mm512_add_epi32(
+        simd.wrapping_sub_u32x16(
+            simd.wrapping_add_u32x16(two_p3, mod_p3),
+            simd.wrapping_add_u32x16(
                 v0,
                 mul_mod32_avx512(
                     simd,
                     p3,
-                    avx._mm512_add_epi32(v1, mul_mod32_avx512(simd, p3, v2, p1, p1_mod_p3_shoup)),
+                    simd.wrapping_add_u32x16(
+                        v1,
+                        mul_mod32_avx512(simd, p3, v2, p1, p1_mod_p3_shoup),
+                    ),
                     p0,
                     p0_mod_p3_shoup,
                 ),
@@ -587,19 +600,19 @@ fn reconstruct_32bit_01234_avx512(
     let v4 = mul_mod32_avx512(
         simd,
         p4,
-        avx._mm512_sub_epi32(
-            avx._mm512_add_epi32(two_p4, mod_p4),
-            avx._mm512_add_epi32(
+        simd.wrapping_sub_u32x16(
+            simd.wrapping_add_u32x16(two_p4, mod_p4),
+            simd.wrapping_add_u32x16(
                 v0,
                 mul_mod32_avx512(
                     simd,
                     p4,
-                    avx._mm512_add_epi32(
+                    simd.wrapping_add_u32x16(
                         v1,
                         mul_mod32_avx512(
                             simd,
                             p4,
-                            avx._mm512_add_epi32(
+                            simd.wrapping_add_u32x16(
                                 v2,
                                 mul_mod32_avx512(simd, p4, v3, p2, p2_mod_p4_shoup),
                             ),
@@ -616,38 +629,43 @@ fn reconstruct_32bit_01234_avx512(
         p0123_inv_mod_p4_shoup,
     );
 
-    let sign = avx._mm512_cmpgt_epu32_mask(v4, half_p4);
-    let sign0 = sign as u8;
-    let sign1 = (sign >> 8) as u8;
-    let v00 = avx._mm512_cvtepu32_epi64(avx._mm512_castsi512_si256(v0));
-    let v01 = avx._mm512_cvtepu32_epi64(avx._mm512_extracti64x4_epi64::<1>(v0));
-    let v10 = avx._mm512_cvtepu32_epi64(avx._mm512_castsi512_si256(v1));
-    let v11 = avx._mm512_cvtepu32_epi64(avx._mm512_extracti64x4_epi64::<1>(v1));
-    let v20 = avx._mm512_cvtepu32_epi64(avx._mm512_castsi512_si256(v2));
-    let v21 = avx._mm512_cvtepu32_epi64(avx._mm512_extracti64x4_epi64::<1>(v2));
-    let v30 = avx._mm512_cvtepu32_epi64(avx._mm512_castsi512_si256(v3));
-    let v31 = avx._mm512_cvtepu32_epi64(avx._mm512_extracti64x4_epi64::<1>(v3));
-    let v40 = avx._mm512_cvtepu32_epi64(avx._mm512_castsi512_si256(v4));
-    let v41 = avx._mm512_cvtepu32_epi64(avx._mm512_extracti64x4_epi64::<1>(v4));
+    let sign = simd.cmp_gt_u32x16(v4, half_p4).0;
+    let sign0 = b8(sign as u8);
+    let sign1 = b8((sign >> 8) as u8);
+    let v0: [u32x8; 2] = pulp::cast(v0);
+    let v1: [u32x8; 2] = pulp::cast(v1);
+    let v2: [u32x8; 2] = pulp::cast(v2);
+    let v3: [u32x8; 2] = pulp::cast(v3);
+    let v4: [u32x8; 2] = pulp::cast(v4);
+    let v00 = simd.convert_u32x8_to_u64x8(v0[0]);
+    let v01 = simd.convert_u32x8_to_u64x8(v0[1]);
+    let v10 = simd.convert_u32x8_to_u64x8(v1[0]);
+    let v11 = simd.convert_u32x8_to_u64x8(v1[1]);
+    let v20 = simd.convert_u32x8_to_u64x8(v2[0]);
+    let v21 = simd.convert_u32x8_to_u64x8(v2[1]);
+    let v30 = simd.convert_u32x8_to_u64x8(v3[0]);
+    let v31 = simd.convert_u32x8_to_u64x8(v3[1]);
+    let v40 = simd.convert_u32x8_to_u64x8(v4[0]);
+    let v41 = simd.convert_u32x8_to_u64x8(v4[1]);
 
     let pos0 = v00;
-    let pos0 = avx._mm512_add_epi64(pos0, avx._mm512_mul_epi32(p0, v10));
-    let pos0 = avx._mm512_add_epi64(pos0, avx._mm512_mullox_epi64(p01, v20));
-    let pos0 = avx._mm512_add_epi64(pos0, avx._mm512_mullox_epi64(p012, v30));
-    let pos0 = avx._mm512_add_epi64(pos0, avx._mm512_mullox_epi64(p0123, v40));
+    let pos0 = simd.wrapping_add_u64x8(pos0, simd.mul_low_32_bits_u64x8(pulp::cast(p0), v10));
+    let pos0 = simd.wrapping_add_u64x8(pos0, simd.wrapping_mul_u64x8(p01, v20));
+    let pos0 = simd.wrapping_add_u64x8(pos0, simd.wrapping_mul_u64x8(p012, v30));
+    let pos0 = simd.wrapping_add_u64x8(pos0, simd.wrapping_mul_u64x8(p0123, v40));
 
     let pos1 = v01;
-    let pos1 = avx._mm512_add_epi64(pos1, avx._mm512_mul_epi32(p0, v11));
-    let pos1 = avx._mm512_add_epi64(pos1, avx._mm512_mullox_epi64(p01, v21));
-    let pos1 = avx._mm512_add_epi64(pos1, avx._mm512_mullox_epi64(p012, v31));
-    let pos1 = avx._mm512_add_epi64(pos1, avx._mm512_mullox_epi64(p0123, v41));
+    let pos1 = simd.wrapping_add_u64x8(pos1, simd.mul_low_32_bits_u64x8(pulp::cast(p0), v11));
+    let pos1 = simd.wrapping_add_u64x8(pos1, simd.wrapping_mul_u64x8(p01, v21));
+    let pos1 = simd.wrapping_add_u64x8(pos1, simd.wrapping_mul_u64x8(p012, v31));
+    let pos1 = simd.wrapping_add_u64x8(pos1, simd.wrapping_mul_u64x8(p0123, v41));
 
-    let neg0 = avx._mm512_sub_epi64(pos0, p01234);
-    let neg1 = avx._mm512_sub_epi64(pos1, p01234);
+    let neg0 = simd.wrapping_sub_u64x8(pos0, p01234);
+    let neg1 = simd.wrapping_sub_u64x8(pos1, p01234);
 
     [
-        avx._mm512_mask_blend_epi64(sign0, pos0, neg0),
-        avx._mm512_mask_blend_epi64(sign1, pos1, neg1),
+        simd.select_u64x8(sign0, neg0, pos0),
+        simd.select_u64x8(sign1, neg1, pos1),
     ]
 }
 
@@ -655,139 +673,135 @@ fn reconstruct_32bit_01234_avx512(
 #[cfg(feature = "nightly")]
 #[inline(always)]
 fn reconstruct_32bit_01234_v2_avx512(
-    simd: crate::Avx512,
-    mod_p0: __m256i,
-    mod_p1: __m256i,
-    mod_p2: __m256i,
-    mod_p3: __m256i,
-    mod_p4: __m256i,
-) -> __m512i {
+    simd: crate::V4IFma,
+    mod_p0: u32x8,
+    mod_p1: u32x8,
+    mod_p2: u32x8,
+    mod_p3: u32x8,
+    mod_p4: u32x8,
+) -> u64x8 {
     use crate::primes32::*;
 
-    let avx = simd.avx512f;
+    let p0 = simd.splat_u64x8(P0 as u64);
+    let p1 = simd.splat_u64x8(P1 as u64);
+    let p2 = simd.splat_u64x8(P2 as u64);
+    let p3 = simd.splat_u64x8(P3 as u64);
+    let p4 = simd.splat_u64x8(P4 as u64);
+    let p12 = simd.splat_u64x8(P12);
+    let p34 = simd.splat_u64x8(P34);
+    let p012 = simd.splat_u64x8((P0 as u64).wrapping_mul(P12));
+    let p01234 = simd.splat_u64x8((P0 as u64).wrapping_mul(P12).wrapping_mul(P34));
 
-    let p0 = avx._mm512_set1_epi64(P0 as i64);
-    let p1 = avx._mm512_set1_epi64(P1 as i64);
-    let p2 = avx._mm512_set1_epi64(P2 as i64);
-    let p3 = avx._mm512_set1_epi64(P3 as i64);
-    let p4 = avx._mm512_set1_epi64(P4 as i64);
-    let p12 = avx._mm512_set1_epi64(P12 as i64);
-    let p34 = avx._mm512_set1_epi64(P34 as i64);
-    let p012 = avx._mm512_set1_epi64((P0 as u64).wrapping_mul(P12) as i64);
-    let p01234 = avx._mm512_set1_epi64((P0 as u64).wrapping_mul(P12).wrapping_mul(P34) as i64);
+    let two_p2 = simd.splat_u64x8(2 * P2 as u64);
+    let two_p4 = simd.splat_u64x8(2 * P4 as u64);
+    let two_p12 = simd.splat_u64x8(2 * P12);
+    let two_p34 = simd.splat_u64x8(2 * P34);
+    let half_p34 = simd.splat_u64x8(P34 / 2);
 
-    let two_p2 = avx._mm512_set1_epi64((2 * P2) as i64);
-    let two_p4 = avx._mm512_set1_epi64((2 * P4) as i64);
-    let two_p12 = avx._mm512_set1_epi64((2 * P12) as i64);
-    let two_p34 = avx._mm512_set1_epi64((2 * P34) as i64);
-    let half_p34 = avx._mm512_set1_epi64((P34 / 2) as i64);
+    let p0_inv_mod_p12 = simd.splat_u64x8(P0_INV_MOD_P12);
+    let p0_inv_mod_p12_shoup = simd.splat_u64x8(P0_INV_MOD_P12_SHOUP);
+    let p1_inv_mod_p2 = simd.splat_u64x8(P1_INV_MOD_P2 as u64);
+    let p1_inv_mod_p2_shoup = simd.splat_u64x8(P1_INV_MOD_P2_SHOUP as u64);
+    let p3_inv_mod_p4 = simd.splat_u64x8(P3_INV_MOD_P4 as u64);
+    let p3_inv_mod_p4_shoup = simd.splat_u64x8(P3_INV_MOD_P4_SHOUP as u64);
 
-    let p0_inv_mod_p12 = avx._mm512_set1_epi64(P0_INV_MOD_P12 as i64);
-    let p0_inv_mod_p12_shoup = avx._mm512_set1_epi64(P0_INV_MOD_P12_SHOUP as i64);
-    let p1_inv_mod_p2 = avx._mm512_set1_epi64(P1_INV_MOD_P2 as i64);
-    let p1_inv_mod_p2_shoup = avx._mm512_set1_epi64(P1_INV_MOD_P2_SHOUP as i64);
-    let p3_inv_mod_p4 = avx._mm512_set1_epi64(P3_INV_MOD_P4 as i64);
-    let p3_inv_mod_p4_shoup = avx._mm512_set1_epi64(P3_INV_MOD_P4_SHOUP as i64);
+    let p012_inv_mod_p34 = simd.splat_u64x8(P012_INV_MOD_P34);
+    let p012_inv_mod_p34_shoup = simd.splat_u64x8(P012_INV_MOD_P34_SHOUP);
+    let p0_mod_p34_shoup = simd.splat_u64x8(P0_MOD_P34_SHOUP);
 
-    let p012_inv_mod_p34 = avx._mm512_set1_epi64(P012_INV_MOD_P34 as i64);
-    let p012_inv_mod_p34_shoup = avx._mm512_set1_epi64(P012_INV_MOD_P34_SHOUP as i64);
-    let p0_mod_p34_shoup = avx._mm512_set1_epi64(P0_MOD_P34_SHOUP as i64);
-
-    let mod_p0 = avx._mm512_cvtepu32_epi64(mod_p0);
-    let mod_p1 = avx._mm512_cvtepu32_epi64(mod_p1);
-    let mod_p2 = avx._mm512_cvtepu32_epi64(mod_p2);
-    let mod_p3 = avx._mm512_cvtepu32_epi64(mod_p3);
-    let mod_p4 = avx._mm512_cvtepu32_epi64(mod_p4);
+    let mod_p0 = simd.convert_u32x8_to_u64x8(mod_p0);
+    let mod_p1 = simd.convert_u32x8_to_u64x8(mod_p1);
+    let mod_p2 = simd.convert_u32x8_to_u64x8(mod_p2);
+    let mod_p3 = simd.convert_u32x8_to_u64x8(mod_p3);
+    let mod_p4 = simd.convert_u32x8_to_u64x8(mod_p4);
 
     let mod_p12 = {
         let v1 = mod_p1;
         let v2 = mul_mod32_v2_avx512(
             simd,
             p2,
-            avx._mm512_sub_epi32(avx._mm512_add_epi32(two_p2, mod_p2), v1),
+            simd.wrapping_sub_u64x8(simd.wrapping_add_u64x8(two_p2, mod_p2), v1),
             p1_inv_mod_p2,
             p1_inv_mod_p2_shoup,
         );
-        avx._mm512_add_epi64(v1, avx._mm512_mullox_epi64(v2, p1))
+        simd.wrapping_add_u64x8(v1, simd.wrapping_mul_u64x8(v2, p1))
     };
     let mod_p34 = {
         let v3 = mod_p3;
         let v4 = mul_mod32_v2_avx512(
             simd,
             p4,
-            avx._mm512_sub_epi32(avx._mm512_add_epi32(two_p4, mod_p4), v3),
+            simd.wrapping_sub_u64x8(simd.wrapping_add_u64x8(two_p4, mod_p4), v3),
             p3_inv_mod_p4,
             p3_inv_mod_p4_shoup,
         );
-        avx._mm512_add_epi64(v3, avx._mm512_mullox_epi64(v4, p3))
+        simd.wrapping_add_u64x8(v3, simd.wrapping_mul_u64x8(v4, p3))
     };
 
     let v0 = mod_p0;
     let v12 = mul_mod64_avx512(
         simd,
         p12,
-        avx._mm512_sub_epi64(avx._mm512_add_epi64(two_p12, mod_p12), v0),
+        simd.wrapping_sub_u64x8(simd.wrapping_add_u64x8(two_p12, mod_p12), v0),
         p0_inv_mod_p12,
         p0_inv_mod_p12_shoup,
     );
     let v34 = mul_mod64_avx512(
         simd,
         p34,
-        avx._mm512_sub_epi64(
-            avx._mm512_add_epi64(two_p34, mod_p34),
-            avx._mm512_add_epi64(v0, mul_mod64_avx512(simd, p34, v12, p0, p0_mod_p34_shoup)),
+        simd.wrapping_sub_u64x8(
+            simd.wrapping_add_u64x8(two_p34, mod_p34),
+            simd.wrapping_add_u64x8(v0, mul_mod64_avx512(simd, p34, v12, p0, p0_mod_p34_shoup)),
         ),
         p012_inv_mod_p34,
         p012_inv_mod_p34_shoup,
     );
 
-    let sign = avx._mm512_cmpgt_epu64_mask(v34, half_p34);
+    let sign = simd.cmp_gt_u64x8(v34, half_p34);
     let pos = v0;
-    let pos = avx._mm512_add_epi64(pos, avx._mm512_mullox_epi64(v12, p0));
-    let pos = avx._mm512_add_epi64(pos, simd._mm512_mul_u64_u64_epu64(v34, p012).0);
+    let pos = simd.wrapping_add_u64x8(pos, simd.wrapping_mul_u64x8(v12, p0));
+    let pos = simd.wrapping_add_u64x8(pos, simd.wrapping_mul_u64x8(v34, p012));
 
-    let neg = avx._mm512_sub_epi64(pos, p01234);
+    let neg = simd.wrapping_sub_u64x8(pos, p01234);
 
-    avx._mm512_mask_blend_epi64(sign, pos, neg)
+    simd.select_u64x8(sign, neg, pos)
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 #[inline(always)]
 fn reconstruct_52bit_012_avx512(
-    simd: crate::Avx512,
-    mod_p0: __m512i,
-    mod_p1: __m512i,
-    mod_p2: __m512i,
-) -> __m512i {
+    simd: crate::V4IFma,
+    mod_p0: u64x8,
+    mod_p1: u64x8,
+    mod_p2: u64x8,
+) -> u64x8 {
     use crate::primes52::*;
 
-    let avx = simd.avx512f;
+    let p0 = simd.splat_u64x8(P0);
+    let p1 = simd.splat_u64x8(P1);
+    let p2 = simd.splat_u64x8(P2);
+    let neg_p1 = simd.splat_u64x8(P1.wrapping_neg());
+    let neg_p2 = simd.splat_u64x8(P2.wrapping_neg());
+    let two_p1 = simd.splat_u64x8(2 * P1);
+    let two_p2 = simd.splat_u64x8(2 * P2);
+    let half_p2 = simd.splat_u64x8(P2 / 2);
 
-    let p0 = avx._mm512_set1_epi64(P0 as i64);
-    let p1 = avx._mm512_set1_epi64(P1 as i64);
-    let p2 = avx._mm512_set1_epi64(P2 as i64);
-    let neg_p1 = avx._mm512_set1_epi64(P1.wrapping_neg() as i64);
-    let neg_p2 = avx._mm512_set1_epi64(P2.wrapping_neg() as i64);
-    let two_p1 = avx._mm512_set1_epi64((2 * P1) as i64);
-    let two_p2 = avx._mm512_set1_epi64((2 * P2) as i64);
-    let half_p2 = avx._mm512_set1_epi64((P2 / 2) as i64);
+    let p0_inv_mod_p1 = simd.splat_u64x8(P0_INV_MOD_P1);
+    let p0_inv_mod_p1_shoup = simd.splat_u64x8(P0_INV_MOD_P1_SHOUP);
+    let p0_mod_p2_shoup = simd.splat_u64x8(P0_MOD_P2_SHOUP);
+    let p01_inv_mod_p2 = simd.splat_u64x8(P01_INV_MOD_P2);
+    let p01_inv_mod_p2_shoup = simd.splat_u64x8(P01_INV_MOD_P2_SHOUP);
 
-    let p0_inv_mod_p1 = avx._mm512_set1_epi64(P0_INV_MOD_P1 as i64);
-    let p0_inv_mod_p1_shoup = avx._mm512_set1_epi64(P0_INV_MOD_P1_SHOUP as i64);
-    let p0_mod_p2_shoup = avx._mm512_set1_epi64(P0_MOD_P2_SHOUP as i64);
-    let p01_inv_mod_p2 = avx._mm512_set1_epi64(P01_INV_MOD_P2 as i64);
-    let p01_inv_mod_p2_shoup = avx._mm512_set1_epi64(P01_INV_MOD_P2_SHOUP as i64);
-
-    let p01 = avx._mm512_set1_epi64(P0.wrapping_mul(P1) as i64);
-    let p012 = avx._mm512_set1_epi64(P0.wrapping_mul(P1).wrapping_mul(P2) as i64);
+    let p01 = simd.splat_u64x8(P0.wrapping_mul(P1));
+    let p012 = simd.splat_u64x8(P0.wrapping_mul(P1).wrapping_mul(P2));
 
     let v0 = mod_p0;
     let v1 = mul_mod52_avx512(
         simd,
         p1,
         neg_p1,
-        avx._mm512_sub_epi64(avx._mm512_add_epi64(two_p1, mod_p1), v0),
+        simd.wrapping_sub_u64x8(simd.wrapping_add_u64x8(two_p1, mod_p1), v0),
         p0_inv_mod_p1,
         p0_inv_mod_p1_shoup,
     );
@@ -795,9 +809,9 @@ fn reconstruct_52bit_012_avx512(
         simd,
         p2,
         neg_p2,
-        avx._mm512_sub_epi64(
-            avx._mm512_add_epi64(two_p2, mod_p2),
-            avx._mm512_add_epi64(
+        simd.wrapping_sub_u64x8(
+            simd.wrapping_add_u64x8(two_p2, mod_p2),
+            simd.wrapping_add_u64x8(
                 v0,
                 mul_mod52_avx512(simd, p2, neg_p2, v1, p0, p0_mod_p2_shoup),
             ),
@@ -806,20 +820,20 @@ fn reconstruct_52bit_012_avx512(
         p01_inv_mod_p2_shoup,
     );
 
-    let sign = avx._mm512_cmpgt_epu64_mask(v2, half_p2);
+    let sign = simd.cmp_gt_u64x8(v2, half_p2);
 
-    let pos = avx._mm512_add_epi64(
-        avx._mm512_add_epi64(v0, avx._mm512_mullox_epi64(v1, p0)),
-        avx._mm512_mullox_epi64(v2, p01),
+    let pos = simd.wrapping_add_u64x8(
+        simd.wrapping_add_u64x8(v0, simd.wrapping_mul_u64x8(v1, p0)),
+        simd.wrapping_mul_u64x8(v2, p01),
     );
-    let neg = avx._mm512_sub_epi64(pos, p012);
+    let neg = simd.wrapping_sub_u64x8(pos, p012);
 
-    avx._mm512_mask_blend_epi64(sign, pos, neg)
+    simd.select_u64x8(sign, neg, pos)
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn reconstruct_slice_32bit_01234_avx2(
-    simd: crate::Avx2,
+    simd: crate::V3,
     value: &mut [u64],
     mod_p0: &[u32],
     mod_p1: &[u32],
@@ -856,7 +870,7 @@ fn reconstruct_slice_32bit_01234_avx2(
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 fn reconstruct_slice_32bit_01234_avx512(
-    simd: crate::Avx512,
+    simd: crate::V4IFma,
     value: &mut [u64],
     mod_p0: &[u32],
     mod_p1: &[u32],
@@ -893,7 +907,7 @@ fn reconstruct_slice_32bit_01234_avx512(
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 fn reconstruct_slice_52bit_012_avx512(
-    simd: crate::Avx512,
+    simd: crate::V4IFma,
     value: &mut [u64],
     mod_p0: &[u64],
     mod_p1: &[u64],
@@ -987,13 +1001,13 @@ impl Plan32 {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
             #[cfg(feature = "nightly")]
-            if let Some(simd) = crate::Avx512::try_new() {
+            if let Some(simd) = crate::V4IFma::try_new() {
                 reconstruct_slice_32bit_01234_avx512(
                     simd, value, mod_p0, mod_p1, mod_p2, mod_p3, mod_p4,
                 );
                 return;
             }
-            if let Some(simd) = crate::Avx2::try_new() {
+            if let Some(simd) = crate::V3::try_new() {
                 reconstruct_slice_32bit_01234_avx2(
                     simd, value, mod_p0, mod_p1, mod_p2, mod_p3, mod_p4,
                 );
@@ -1048,7 +1062,7 @@ impl Plan52 {
     /// instruction set isn't detected.
     pub fn try_new(n: usize) -> Option<Self> {
         use crate::{prime64::Plan, primes52::*};
-        let simd = crate::Avx512::try_new()?;
+        let simd = crate::V4IFma::try_new()?;
         Some(Self(
             Plan::try_new(n, P0)?,
             Plan::try_new(n, P1)?,
@@ -1125,10 +1139,11 @@ impl Plan52 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prime64::tests::random_lhs_rhs_with_negacyclic_convolution;
+    use alloc::{vec, vec::Vec};
     use rand::random;
 
     extern crate alloc;
-    use alloc::{vec, vec::Vec};
 
     #[test]
     fn reconstruct_32bit() {
@@ -1162,20 +1177,8 @@ mod tests {
                 assert_eq!(value_roundtrip, value.wrapping_mul(n as u64));
             }
 
-            let lhs = (0..n).map(|_| random::<u64>()).collect::<Vec<_>>();
-            let rhs = (0..n).map(|_| random::<u64>()).collect::<Vec<_>>();
-            let mut full_convolution = vec![0u64; 2 * n];
-            let mut negacyclic_convolution = vec![0u64; n];
-            for i in 0..n {
-                for j in 0..n {
-                    full_convolution[i + j] =
-                        full_convolution[i + j].wrapping_add(lhs[i].wrapping_mul(rhs[j]));
-                }
-            }
-            for i in 0..n {
-                negacyclic_convolution[i] =
-                    full_convolution[i].wrapping_sub(full_convolution[i + n]);
-            }
+            let (lhs, rhs, negacyclic_convolution) =
+                random_lhs_rhs_with_negacyclic_convolution(n, 0);
 
             let mut prod = vec![0; n];
             plan.negacyclic_polymul(&mut prod, &lhs, &rhs);
@@ -1201,20 +1204,8 @@ mod tests {
                     assert_eq!(value_roundtrip, value.wrapping_mul(n as u64));
                 }
 
-                let lhs = (0..n).map(|_| random::<u64>()).collect::<Vec<_>>();
-                let rhs = (0..n).map(|_| random::<u64>()).collect::<Vec<_>>();
-                let mut full_convolution = vec![0u64; 2 * n];
-                let mut negacyclic_convolution = vec![0u64; n];
-                for i in 0..n {
-                    for j in 0..n {
-                        full_convolution[i + j] =
-                            full_convolution[i + j].wrapping_add(lhs[i].wrapping_mul(rhs[j]));
-                    }
-                }
-                for i in 0..n {
-                    negacyclic_convolution[i] =
-                        full_convolution[i].wrapping_sub(full_convolution[i + n]);
-                }
+                let (lhs, rhs, negacyclic_convolution) =
+                    random_lhs_rhs_with_negacyclic_convolution(n, 0);
 
                 let mut prod = vec![0; n];
                 plan.negacyclic_polymul(&mut prod, &lhs, &rhs);
@@ -1245,7 +1236,7 @@ mod tests {
                 *value = reconstruct_32bit_01234_v2(mod_p0, mod_p1, mod_p2, mod_p3, mod_p4);
             }
 
-            if let Some(simd) = crate::Avx2::try_new() {
+            if let Some(simd) = crate::V3::try_new() {
                 reconstruct_slice_32bit_01234_avx2(
                     simd,
                     &mut value_avx2,
@@ -1258,7 +1249,7 @@ mod tests {
                 assert_eq!(value, value_avx2);
             }
             #[cfg(feature = "nightly")]
-            if let Some(simd) = crate::Avx512::try_new() {
+            if let Some(simd) = crate::V4IFma::try_new() {
                 reconstruct_slice_32bit_01234_avx512(
                     simd,
                     &mut value_avx512,
