@@ -1,3 +1,4 @@
+extern crate alloc;
 use crate::{
     bit_rev,
     fastdiv::{Div32, Div64},
@@ -641,7 +642,7 @@ pub mod tests {
         }
     }
 
-    pub fn negacyclic_convolution(n: usize, p: u32, lhs: &[u32], rhs: &[u32]) -> Vec<u32> {
+    pub fn negacyclic_convolution(n: usize, p: u32, lhs: &[u32], rhs: &[u32]) -> vec::Vec<u32> {
         let mut full_convolution = vec![0u32; 2 * n];
         let mut negacyclic_convolution = vec![0u32; n];
         for i in 0..n {
@@ -658,7 +659,7 @@ pub mod tests {
     pub fn random_lhs_rhs_with_negacyclic_convolution(
         n: usize,
         p: u32,
-    ) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
+    ) -> (vec::Vec<u32>, vec::Vec<u32>, vec::Vec<u32>) {
         let mut lhs = vec![0u32; n];
         let mut rhs = vec![0u32; n];
 

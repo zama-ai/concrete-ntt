@@ -1,3 +1,4 @@
+extern crate alloc;
 use crate::{bit_rev, fastdiv::Div64, roots::find_primitive_root64};
 use aligned_vec::{avec, ABox};
 
@@ -703,7 +704,7 @@ pub mod tests {
         }
     }
 
-    pub fn negacyclic_convolution(n: usize, p: u64, lhs: &[u64], rhs: &[u64]) -> Vec<u64> {
+    pub fn negacyclic_convolution(n: usize, p: u64, lhs: &[u64], rhs: &[u64]) -> vec::Vec<u64> {
         let mut full_convolution = vec![0u64; 2 * n];
         let mut negacyclic_convolution = vec![0u64; n];
         for i in 0..n {
@@ -720,7 +721,7 @@ pub mod tests {
     pub fn random_lhs_rhs_with_negacyclic_convolution(
         n: usize,
         p: u64,
-    ) -> (Vec<u64>, Vec<u64>, Vec<u64>) {
+    ) -> (vec::Vec<u64>, vec::Vec<u64>, vec::Vec<u64>) {
         let mut lhs = vec![0u64; n];
         let mut rhs = vec![0u64; n];
 
