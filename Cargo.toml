@@ -17,5 +17,9 @@ criterion = "0.4"
 rand = "0.8"
 
 [[bench]]
-name = "bench"
+name = "ntt"
 harness = false
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--html-in-header", "katex-header.html", "--cfg", "docsrs"]
