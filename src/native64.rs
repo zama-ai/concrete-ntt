@@ -953,6 +953,27 @@ impl Plan32 {
         self.0.ntt_size()
     }
 
+    #[inline]
+    pub fn ntt_0(&self) -> &crate::prime32::Plan {
+        &self.0
+    }
+    #[inline]
+    pub fn ntt_1(&self) -> &crate::prime32::Plan {
+        &self.1
+    }
+    #[inline]
+    pub fn ntt_2(&self) -> &crate::prime32::Plan {
+        &self.2
+    }
+    #[inline]
+    pub fn ntt_3(&self) -> &crate::prime32::Plan {
+        &self.3
+    }
+    #[inline]
+    pub fn ntt_4(&self) -> &crate::prime32::Plan {
+        &self.4
+    }
+
     pub fn fwd(
         &self,
         value: &[u64],
@@ -1075,6 +1096,19 @@ impl Plan52 {
     #[inline]
     pub fn ntt_size(&self) -> usize {
         self.0.ntt_size()
+    }
+
+    #[inline]
+    pub fn ntt_0(&self) -> &crate::prime64::Plan {
+        &self.0
+    }
+    #[inline]
+    pub fn ntt_1(&self) -> &crate::prime64::Plan {
+        &self.1
+    }
+    #[inline]
+    pub fn ntt_2(&self) -> &crate::prime64::Plan {
+        &self.2
     }
 
     pub fn fwd(&self, value: &[u64], mod_p0: &mut [u64], mod_p1: &mut [u64], mod_p2: &mut [u64]) {
