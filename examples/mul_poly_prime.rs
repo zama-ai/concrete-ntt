@@ -30,8 +30,8 @@ fn main() {
 
     // method 2: NTT
     let plan = Plan::try_new(polynomial_size, p).unwrap();
-    let mut lhs_ntt = lhs_poly.clone();
-    let mut rhs_ntt = rhs_poly.clone();
+    let mut lhs_ntt = lhs_poly;
+    let mut rhs_ntt = rhs_poly;
 
     // convert to NTT domain
     plan.fwd(&mut lhs_ntt);

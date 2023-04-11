@@ -2,7 +2,8 @@
 //! vectors of sizes that are powers of two.
 //!
 //! This library provides three kinds of NTT:
-//! - The prime NTT computes the transform in a field $\mathbb{Z}/p\mathbb{Z}$ with $p$ prime, allowing for
+//! - The prime NTT computes the transform in a field $\mathbb{Z}/p\mathbb{Z}$ with $p$ prime,
+//!   allowing for
 //! arithmetic operations on the polynomial modulo $p$.
 //! - The native NTT internally computes the transform of the first kind with several primes,
 //! allowing the simulation of arithmetic modulo the product of those primes, and truncates the
@@ -711,6 +712,31 @@ mod tests {
             let c = (d as u32).wrapping_sub(p.wrapping_mul(c3));
             let c = if c >= p { c - p } else { c };
             assert_eq!(c as u64, d % p as u64);
+        }
+    }
+
+    #[test]
+    fn test_barrett52() {
+        let p = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 50, 1 << 51).unwrap();
+
+        let big_q: u32 = p.ilog2() + 1;
+        let big_l: u32 = big_q + 51;
+        let k: u64 = ((1u128 << big_l) / p as u128).try_into().unwrap();
+
+        for _ in 0..10000 {
+            let a = random::<u64>() % p;
+            let b = random::<u64>() % p;
+
+            let d = a as u128 * b as u128;
+            // Q < 51
+            // d < 2^(2Q)
+            // (d >> (Q-1)) < 2^(Q+1)         -> c1 fits in u64
+            let c1 = (d >> (big_q - 1)) as u64;
+            // c2 < 2^(Q+53)
+            let c3 = ((c1 as u128 * k as u128) >> 52) as u64;
+            let c = (d as u64).wrapping_sub(p.wrapping_mul(c3));
+            let c = if c >= p { c - p } else { c };
+            assert_eq!(c as u128, d % p as u128);
         }
     }
 

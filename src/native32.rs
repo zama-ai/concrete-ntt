@@ -356,6 +356,19 @@ impl Plan32 {
         self.0.ntt_size()
     }
 
+    #[inline]
+    pub fn ntt_0(&self) -> &crate::prime32::Plan {
+        &self.0
+    }
+    #[inline]
+    pub fn ntt_1(&self) -> &crate::prime32::Plan {
+        &self.1
+    }
+    #[inline]
+    pub fn ntt_2(&self) -> &crate::prime32::Plan {
+        &self.2
+    }
+
     pub fn fwd(&self, value: &[u32], mod_p0: &mut [u32], mod_p1: &mut [u32], mod_p2: &mut [u32]) {
         for (value, mod_p0, mod_p1, mod_p2) in
             crate::izip!(value, &mut *mod_p0, &mut *mod_p1, &mut *mod_p2)

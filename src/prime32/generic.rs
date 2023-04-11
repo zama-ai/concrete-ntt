@@ -6,7 +6,7 @@ use core::iter::zip;
 use pulp::{as_arrays, as_arrays_mut, cast, x86::*};
 
 #[inline(always)]
-fn add(p: u32, a: u32, b: u32) -> u32 {
+pub(crate) fn add(p: u32, a: u32, b: u32) -> u32 {
     let neg_b = p - b;
     if a >= neg_b {
         a - neg_b
@@ -16,7 +16,7 @@ fn add(p: u32, a: u32, b: u32) -> u32 {
 }
 
 #[inline(always)]
-fn sub(p: u32, a: u32, b: u32) -> u32 {
+pub(crate) fn sub(p: u32, a: u32, b: u32) -> u32 {
     let neg_b = p - b;
     if a >= b {
         a - b
@@ -26,7 +26,7 @@ fn sub(p: u32, a: u32, b: u32) -> u32 {
 }
 
 #[inline(always)]
-fn mul(p: Div32, a: u32, b: u32) -> u32 {
+pub(crate) fn mul(p: Div32, a: u32, b: u32) -> u32 {
     Div32::rem_u64(a as u64 * b as u64, p)
 }
 
