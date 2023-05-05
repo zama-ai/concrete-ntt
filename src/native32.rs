@@ -13,10 +13,7 @@ pub struct Plan32(
 
 /// Negacyclic NTT plan for multiplying two 32bit polynomials.  
 /// This can be more efficient than [`Plan32`], but requires the AVX512 instruction set.
-#[cfg(any(
-    all(feature = "nightly", doc),
-    all(feature = "nightly", any(target_arch = "x86", target_arch = "x86_64"))
-))]
+#[cfg(all(feature = "nightly", any(target_arch = "x86", target_arch = "x86_64")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "nightly")))]
 #[derive(Clone, Debug)]
 pub struct Plan52(crate::prime64::Plan, crate::prime64::Plan, crate::V4IFma);

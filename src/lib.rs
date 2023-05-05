@@ -74,7 +74,6 @@
 #[allow(dead_code)]
 fn implementation_notes() {}
 
-use core::fmt::Debug;
 use u256_impl::u256;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -129,10 +128,7 @@ struct V3(pulp::x86::V3);
 #[repr(transparent)]
 struct V4(pulp::x86::V4);
 
-#[cfg(any(
-    all(feature = "nightly", doc),
-    all(feature = "nightly", any(target_arch = "x86", target_arch = "x86_64"))
-))]
+#[cfg(all(feature = "nightly", any(target_arch = "x86", target_arch = "x86_64")))]
 pulp::simd_type! {
     struct V4IFma {
         pub sse: "sse",

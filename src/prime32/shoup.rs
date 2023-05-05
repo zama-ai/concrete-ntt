@@ -1,9 +1,10 @@
 use super::RECURSION_THRESHOLD;
 use crate::Butterfly;
 use core::iter::zip;
+use pulp::cast;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use pulp::{as_arrays, as_arrays_mut, cast, x86::*};
+use pulp::{as_arrays, as_arrays_mut, x86::*};
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
@@ -580,7 +581,6 @@ pub(crate) fn fwd_depth_first_avx2(
     });
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub(crate) fn fwd_breadth_first_scalar(
     p: u32,
     data: &mut [u32],
@@ -1354,7 +1354,6 @@ pub(crate) fn inv_depth_first_avx2(
     });
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub(crate) fn inv_breadth_first_scalar(
     p: u32,
     data: &mut [u32],
