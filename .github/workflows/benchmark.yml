@@ -66,7 +66,7 @@ jobs:
           COMMIT_DATE="$(git --no-pager show -s --format=%cd --date=iso8601-strict ${{ github.sha }})"
           COMMIT_HASH="$(git describe --tags --dirty)"
           python3 ./ci/benchmark_parser.py target/criterion ${{ env.RESULTS_FILENAME }} \
-          --database tfhe_rs_benchmarks \
+          --database concrete_ntt \
           --hardware ${{ inputs.instance_type }} \
           --project-version "${COMMIT_HASH}" \
           --branch ${{ github.ref_name }} \
@@ -75,7 +75,7 @@ jobs:
 
       - name: Remove previous raw results
         run: |
-          rm -rf target/criterion
+          rm -rf target/criterion benchmarks_parameters/
 
       - name: Run benchmarks with AVX512
         run: |
@@ -109,7 +109,7 @@ jobs:
           curl -v -k \
           -H "Content-Type: application/json" \
           -H "X-Slab-Repository: ${{ github.repository }}" \
-          -H "X-Slab-Command: store_data" \
+          -H "X-Slab-Command: store_data_v2" \
           -H "X-Hub-Signature-256: sha256=${SIGNATURE}" \
           -d @${{ env.RESULTS_FILENAME }} \
           ${{ secrets.SLAB_URL }}
