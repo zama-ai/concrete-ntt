@@ -53,7 +53,6 @@ pub const fn sqrt_mod_ex64(p: Div64, q: u64, s: u64, z: u64, n: u64) -> Option<u
         }
         let i = i;
         if i == m {
-            assert!(t_pow == 1);
             return None;
         }
 
@@ -128,5 +127,8 @@ mod tests {
             assert_ne!(exp_mod64(p, root, i), 1);
         }
         assert_eq!(exp_mod64(p, root, deg), 1);
+
+        // Regression from issue #11.
+        assert_eq!(find_primitive_root64(Div64::new(deg), deg), None);
     }
 }
