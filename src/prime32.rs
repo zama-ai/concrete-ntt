@@ -1,6 +1,7 @@
 use crate::{
     bit_rev,
     fastdiv::{Div32, Div64},
+    prime::is_prime64,
     roots::find_primitive_root64,
 };
 use aligned_vec::{avec, ABox};
@@ -632,6 +633,8 @@ impl Plan {
         // as SIMD registers can contain at most 16*u32
         // and the implementation assumes that SIMD registers are full
         if polynomial_size < 32
+            || !polynomial_size.is_power_of_two()
+            || !is_prime64(modulus as u64)
             || find_primitive_root64(Div64::new(modulus as u64), 2 * polynomial_size as u64)
                 .is_none()
         {

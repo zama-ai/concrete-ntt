@@ -1,4 +1,4 @@
-use crate::{bit_rev, fastdiv::Div64, roots::find_primitive_root64};
+use crate::{bit_rev, fastdiv::Div64, prime::is_prime64, roots::find_primitive_root64};
 use aligned_vec::{avec, ABox};
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -707,6 +707,8 @@ impl Plan {
         // as SIMD registers can contain at most 8*u64
         // and the implementation assumes that SIMD registers are full
         if polynomial_size < 16
+            || !polynomial_size.is_power_of_two()
+            || !is_prime64(modulus)
             || find_primitive_root64(p_div, 2 * polynomial_size as u64).is_none()
         {
             None
@@ -1868,5 +1870,10 @@ mod x86_tests {
             normalize_avx2(simd, &mut val, p, n_inv_mod_p, n_inv_mod_p_shoup);
             assert_eq!(val, val_target);
         }
+    }
+
+    #[test]
+    fn test_plan_crash_github_11() {
+        assert!(Plan::try_new(2048, 1024).is_none());
     }
 }
