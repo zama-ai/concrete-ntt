@@ -787,6 +787,25 @@ impl Plan {
     /// # Note
     /// On entry, the buffer holds the polynomial coefficients in standard order. On exit, the
     /// buffer holds the negacyclic NTT transform coefficients in bit reversed order.
+    pub fn fwd_const_time(&self, buf: &mut [u64]) {
+        assert_eq!(buf.len(), self.ntt_size());
+        let p = self.p;
+        if p < (1u64 << 62) {
+            less_than_62bit::fwd_scalar_const_time(p, buf, &self.twid, &self.twid_shoup);
+        } else if p < (1u64 << 63) {
+            less_than_63bit::fwd_scalar_const_time(p, buf, &self.twid, &self.twid_shoup);
+        } else if p == Solinas::P {
+            generic_solinas::fwd_scalar_const_time(buf, Solinas, (), &self.twid);
+        } else {
+            generic_solinas::fwd_scalar_const_time(buf, p, self.p_div, &self.twid);
+        }
+    }
+
+    /// Applies a forward negacyclic NTT transform in place to the given buffer.
+    ///
+    /// # Note
+    /// On entry, the buffer holds the polynomial coefficients in standard order. On exit, the
+    /// buffer holds the negacyclic NTT transform coefficients in bit reversed order.
     pub fn fwd(&self, buf: &mut [u64]) {
         assert_eq!(buf.len(), self.ntt_size());
         let p = self.p;
@@ -857,6 +876,25 @@ impl Plan {
                 return;
             }
             generic_solinas::fwd_scalar(buf, p, self.p_div, &self.twid);
+        }
+    }
+
+    /// Applies an inverse negacyclic NTT transform in place to the given buffer.
+    ///
+    /// # Note
+    /// On entry, the buffer holds the negacyclic NTT transform coefficients in bit reversed order.
+    /// On exit, the buffer holds the polynomial coefficients in standard order.
+    pub fn inv_const_time(&self, buf: &mut [u64]) {
+        assert_eq!(buf.len(), self.ntt_size());
+        let p = self.p;
+        if p < (1u64 << 62) {
+            less_than_62bit::inv_scalar_const_time(p, buf, &self.inv_twid, &self.inv_twid_shoup);
+        } else if p < (1u64 << 63) {
+            less_than_63bit::inv_scalar_const_time(p, buf, &self.inv_twid, &self.inv_twid_shoup);
+        } else if p == Solinas::P {
+            generic_solinas::inv_scalar_const_time(buf, Solinas, (), &self.inv_twid);
+        } else {
+            generic_solinas::inv_scalar_const_time(buf, p, self.p_div, &self.inv_twid);
         }
     }
 
@@ -1239,6 +1277,64 @@ pub mod tests {
                         <u64 as PrimeModulus>::mul(Div64::new(p), lhs_fourier[i], rhs_fourier[i]);
                 }
                 plan.inv(&mut prod);
+
+                plan.mul_assign_normalize(&mut lhs_fourier, &rhs_fourier);
+                plan.inv(&mut lhs_fourier);
+
+                for x in &prod {
+                    assert!(*x < p);
+                }
+
+                for i in 0..n {
+                    assert_eq!(
+                        prod[i],
+                        <u64 as PrimeModulus>::mul(
+                            Div64::new(p),
+                            negacyclic_convolution[i],
+                            n as u64
+                        ),
+                    );
+                }
+                assert_eq!(lhs_fourier, negacyclic_convolution);
+            }
+        }
+    }
+
+    #[test]
+    fn test_product_const_time() {
+        for n in [16, 32, 64, 128, 256, 512, 1024] {
+            for p in [
+                largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 49, 1 << 50).unwrap(),
+                largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 50, 1 << 51).unwrap(),
+                largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 61, 1 << 62).unwrap(),
+                largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 62, 1 << 63).unwrap(),
+                Solinas::P,
+                largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 63, u64::MAX).unwrap(),
+            ] {
+                let plan = Plan::try_new(n, p).unwrap();
+
+                let (lhs, rhs, negacyclic_convolution) =
+                    random_lhs_rhs_with_negacyclic_convolution(n, p);
+
+                let mut prod = vec![0u64; n];
+                let mut lhs_fourier = lhs.clone();
+                let mut rhs_fourier = rhs.clone();
+
+                plan.fwd_const_time(&mut lhs_fourier);
+                plan.fwd_const_time(&mut rhs_fourier);
+
+                for x in &lhs_fourier {
+                    assert!(*x < p);
+                }
+                for x in &rhs_fourier {
+                    assert!(*x < p);
+                }
+
+                for i in 0..n {
+                    prod[i] =
+                        <u64 as PrimeModulus>::mul(Div64::new(p), lhs_fourier[i], rhs_fourier[i]);
+                }
+                plan.inv_const_time(&mut prod);
 
                 plan.mul_assign_normalize(&mut lhs_fourier, &rhs_fourier);
                 plan.inv(&mut lhs_fourier);

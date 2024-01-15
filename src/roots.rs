@@ -3,6 +3,20 @@ use crate::{
     prime::{exp_mod64, mul_mod64},
 };
 
+/// cond ? on_true : on_false
+#[inline(always)]
+pub fn const_time_cond_select_u64(on_true: u64, on_false: u64, cond: bool) -> u64 {
+    let mask = -(cond as i64) as u64;
+    let diff = on_true ^ on_false;
+    (diff & mask) ^ on_false
+}
+
+/// x mod p for x \in [0, 2p)
+pub fn const_time_u64_reduce(x: u64, p: u64) -> u64 {
+    debug_assert!(x < p + p);
+    const_time_cond_select_u64(x, x.wrapping_sub(p), x < p)
+}
+
 pub const fn get_q_s64(p: Div64) -> (u64, u64) {
     let p = p.divisor();
     let mut q = p - 1;

@@ -1,3 +1,4 @@
+use crate::roots::const_time_u64_reduce;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use pulp::x86::*;
 
@@ -153,6 +154,46 @@ pub(crate) fn fwd_last_butterfly_scalar(
     )
 }
 
+#[inline(always)]
+pub(crate) fn fwd_butterfly_scalar_const_time(
+    z0: u64,
+    z1: u64,
+    w: u64,
+    w_shoup: u64,
+    p: u64,
+    neg_p: u64,
+    two_p: u64,
+) -> (u64, u64) {
+    let _ = two_p;
+    let z0 = const_time_u64_reduce(z0, p);
+    let shoup_q = ((z1 as u128 * w_shoup as u128) >> 64) as u64;
+    let t = u64::wrapping_add(z1.wrapping_mul(w), shoup_q.wrapping_mul(neg_p));
+    let t = const_time_u64_reduce(t, p);
+    (z0.wrapping_add(t), z0.wrapping_sub(t).wrapping_add(p))
+}
+
+#[inline(always)]
+pub(crate) fn fwd_last_butterfly_scalar_const_time(
+    z0: u64,
+    z1: u64,
+    w: u64,
+    w_shoup: u64,
+    p: u64,
+    neg_p: u64,
+    two_p: u64,
+) -> (u64, u64) {
+    let _ = two_p;
+    let z0 = const_time_u64_reduce(z0, p);
+    let shoup_q = ((z1 as u128 * w_shoup as u128) >> 64) as u64;
+    let t = u64::wrapping_add(z1.wrapping_mul(w), shoup_q.wrapping_mul(neg_p));
+    let t = const_time_u64_reduce(t, p);
+    let res = (z0.wrapping_add(t), z0.wrapping_sub(t).wrapping_add(p));
+    (
+        const_time_u64_reduce(res.0, p),
+        const_time_u64_reduce(res.1, p),
+    )
+}
+
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 #[inline(always)]
@@ -228,6 +269,27 @@ pub(crate) fn inv_butterfly_scalar(
     let shoup_q = ((t as u128 * w_shoup as u128) >> 64) as u64;
     let y1 = u64::wrapping_add(t.wrapping_mul(w), shoup_q.wrapping_mul(neg_p));
     let y1 = y1.min(y1.wrapping_sub(p));
+    (y0, y1)
+}
+
+#[inline(always)]
+pub(crate) fn inv_butterfly_scalar_const_time(
+    z0: u64,
+    z1: u64,
+    w: u64,
+    w_shoup: u64,
+    p: u64,
+    neg_p: u64,
+    two_p: u64,
+) -> (u64, u64) {
+    let _ = two_p;
+
+    let y0 = z0.wrapping_add(z1);
+    let y0 = const_time_u64_reduce(y0, p);
+    let t = z0.wrapping_sub(z1).wrapping_add(p);
+    let shoup_q = ((t as u128 * w_shoup as u128) >> 64) as u64;
+    let y1 = u64::wrapping_add(t.wrapping_mul(w), shoup_q.wrapping_mul(neg_p));
+    let y1 = const_time_u64_reduce(y1, p);
     (y0, y1)
 }
 
@@ -375,6 +437,44 @@ pub(crate) fn inv_scalar(p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u
         #[inline(always)]
         |z0, z1, w, w_shoup, p, neg_p, two_p| {
             inv_butterfly_scalar(z0, z1, w, w_shoup, p, neg_p, two_p)
+        },
+    )
+}
+
+pub(crate) fn fwd_scalar_const_time(p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+    super::shoup::fwd_depth_first_scalar(
+        p,
+        data,
+        twid,
+        twid_shoup,
+        0,
+        0,
+        #[inline(always)]
+        |z0, z1, w, w_shoup, p, neg_p, two_p| {
+            fwd_butterfly_scalar_const_time(z0, z1, w, w_shoup, p, neg_p, two_p)
+        },
+        #[inline(always)]
+        |z0, z1, w, w_shoup, p, neg_p, two_p| {
+            fwd_last_butterfly_scalar_const_time(z0, z1, w, w_shoup, p, neg_p, two_p)
+        },
+    )
+}
+
+pub(crate) fn inv_scalar_const_time(p: u64, data: &mut [u64], twid: &[u64], twid_shoup: &[u64]) {
+    super::shoup::inv_depth_first_scalar(
+        p,
+        data,
+        twid,
+        twid_shoup,
+        0,
+        0,
+        #[inline(always)]
+        |z0, z1, w, w_shoup, p, neg_p, two_p| {
+            inv_butterfly_scalar_const_time(z0, z1, w, w_shoup, p, neg_p, two_p)
+        },
+        #[inline(always)]
+        |z0, z1, w, w_shoup, p, neg_p, two_p| {
+            inv_butterfly_scalar_const_time(z0, z1, w, w_shoup, p, neg_p, two_p)
         },
     )
 }
@@ -539,6 +639,55 @@ mod tests {
             }
 
             inv_scalar(p, &mut prod, &inv_twid, &inv_twid_shoup);
+            let result = prod;
+
+            for i in 0..n {
+                assert_eq!(result[i], mul(p, negacyclic_convolution[i], n as u64),);
+            }
+        }
+    }
+
+    #[test]
+    fn test_product_scalar_const_time() {
+        for n in [16, 32, 64, 128, 256, 512, 1024] {
+            let p =
+                largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 62, 1 << 63).unwrap();
+
+            let (lhs, rhs, negacyclic_convolution) =
+                random_lhs_rhs_with_negacyclic_convolution(n, p);
+
+            let mut twid = vec![0u64; n];
+            let mut twid_shoup = vec![0u64; n];
+            let mut inv_twid = vec![0u64; n];
+            let mut inv_twid_shoup = vec![0u64; n];
+            init_negacyclic_twiddles_shoup(
+                p,
+                n,
+                64,
+                &mut twid,
+                &mut twid_shoup,
+                &mut inv_twid,
+                &mut inv_twid_shoup,
+            );
+
+            let mut prod = vec![0u64; n];
+            let mut lhs_fourier = lhs.clone();
+            let mut rhs_fourier = rhs.clone();
+
+            fwd_scalar_const_time(p, &mut lhs_fourier, &twid, &twid_shoup);
+            fwd_scalar_const_time(p, &mut rhs_fourier, &twid, &twid_shoup);
+            for x in &lhs_fourier {
+                assert!(*x < p);
+            }
+            for x in &rhs_fourier {
+                assert!(*x < p);
+            }
+
+            for i in 0..n {
+                prod[i] = mul(p, lhs_fourier[i], rhs_fourier[i]);
+            }
+
+            inv_scalar_const_time(p, &mut prod, &inv_twid, &inv_twid_shoup);
             let result = prod;
 
             for i in 0..n {

@@ -1,5 +1,6 @@
 use super::RECURSION_THRESHOLD;
 use crate::fastdiv::Div64;
+use crate::roots::const_time_cond_select_u64;
 use core::{fmt::Debug, iter::zip};
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -11,6 +12,10 @@ pub(crate) trait PrimeModulus: Debug + Copy {
     fn add(self, a: u64, b: u64) -> u64;
     fn sub(self, a: u64, b: u64) -> u64;
     fn mul(p: Self::Div, a: u64, b: u64) -> u64;
+
+    fn add_const_time(self, a: u64, b: u64) -> u64;
+    fn sub_const_time(self, a: u64, b: u64) -> u64;
+    fn mul_const_time(p: Self::Div, a: u64, b: u64) -> u64;
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -45,10 +50,6 @@ impl PrimeModulus for u64 {
     #[inline(always)]
     fn add(self, a: u64, b: u64) -> u64 {
         let p = self;
-        // a + b >= p
-        // implies
-        // a >= p - b
-
         let neg_b = p - b;
         if a >= neg_b {
             a - neg_b
@@ -70,6 +71,26 @@ impl PrimeModulus for u64 {
 
     #[inline(always)]
     fn mul(p: Self::Div, a: u64, b: u64) -> u64 {
+        Div64::rem_u128(a as u128 * b as u128, p)
+    }
+
+    #[inline(always)]
+    fn add_const_time(self, a: u64, b: u64) -> u64 {
+        let p = self;
+        let neg_b = p - b;
+        const_time_cond_select_u64(a.wrapping_add(b), a.wrapping_sub(neg_b), a < neg_b)
+    }
+
+    #[inline(always)]
+    fn sub_const_time(self, a: u64, b: u64) -> u64 {
+        let p = self;
+        let neg_b = p - b;
+
+        const_time_cond_select_u64(a.wrapping_add(neg_b), a.wrapping_sub(b), a < b)
+    }
+
+    #[inline(always)]
+    fn mul_const_time(p: Self::Div, a: u64, b: u64) -> u64 {
         Div64::rem_u128(a as u128 * b as u128, p)
     }
 }
@@ -125,6 +146,46 @@ impl PrimeModulus for Solinas {
             result = result.wrapping_sub(p);
         }
         result
+    }
+
+    #[inline(always)]
+    fn add_const_time(self, a: u64, b: u64) -> u64 {
+        let p = Self::P;
+        let neg_b = p - b;
+        const_time_cond_select_u64(a.wrapping_add(b), a.wrapping_sub(neg_b), a < neg_b)
+    }
+
+    #[inline(always)]
+    fn sub_const_time(self, a: u64, b: u64) -> u64 {
+        let p = Self::P;
+        let neg_b = p - b;
+        const_time_cond_select_u64(a.wrapping_add(neg_b), a.wrapping_sub(b), a < b)
+    }
+
+    #[inline(always)]
+    fn mul_const_time(p: Self::Div, a: u64, b: u64) -> u64 {
+        let _ = p;
+        let p = Self::P;
+
+        let wide = a as u128 * b as u128;
+
+        let lo = wide as u64;
+        let hi = (wide >> 64) as u64;
+        let mid = hi & 0x0000_0000_FFFF_FFFF;
+        let hi = (hi & 0xFFFF_FFFF_0000_0000) >> 32;
+
+        let low2 = lo.wrapping_sub(hi);
+        let low2 = const_time_cond_select_u64(low2.wrapping_add(p), low2, hi > lo);
+
+        let mut product = mid << 32;
+        product -= mid;
+
+        let result = low2.wrapping_add(product);
+        const_time_cond_select_u64(
+            result,
+            result.wrapping_sub(p),
+            result >= product && (result < p),
+        )
     }
 }
 
@@ -480,6 +541,40 @@ pub(crate) fn fwd_breadth_first_scalar<P: PrimeModulus>(
     }
 }
 
+pub(crate) fn fwd_breadth_first_scalar_const_time<P: PrimeModulus>(
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    twid: &[u64],
+    recursion_depth: usize,
+    recursion_half: usize,
+) {
+    let n = data.len();
+    debug_assert!(n.is_power_of_two());
+
+    let mut t = n / 2;
+    let mut m = 1;
+    let mut w_idx = (m << recursion_depth) + recursion_half * m;
+
+    while m < n {
+        let w = &twid[w_idx..];
+
+        for (data, &w1) in zip(data.chunks_exact_mut(2 * t), w) {
+            let (z0, z1) = data.split_at_mut(t);
+
+            for (z0, z1) in zip(z0, z1) {
+                let z1w = P::mul_const_time(p_div, *z1, w1);
+
+                (*z0, *z1) = (p.add_const_time(*z0, z1w), p.sub_const_time(*z0, z1w));
+            }
+        }
+
+        t /= 2;
+        m *= 2;
+        w_idx *= 2;
+    }
+}
+
 pub(crate) fn inv_breadth_first_scalar<P: PrimeModulus>(
     data: &mut [u64],
     p: P,
@@ -560,6 +655,98 @@ pub(crate) fn inv_depth_first_scalar<P: PrimeModulus>(
     }
 }
 
+pub(crate) fn inv_breadth_first_scalar_const_time<P: PrimeModulus>(
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    inv_twid: &[u64],
+    recursion_depth: usize,
+    recursion_half: usize,
+) {
+    let n = data.len();
+    debug_assert!(n.is_power_of_two());
+
+    let mut t = 1;
+    let mut m = n;
+    let mut w_idx = (m << recursion_depth) + recursion_half * m;
+
+    while m > 1 {
+        m /= 2;
+        w_idx /= 2;
+
+        let w = &inv_twid[w_idx..];
+
+        for (data, &w1) in zip(data.chunks_exact_mut(2 * t), w) {
+            let (z0, z1) = data.split_at_mut(t);
+
+            for (z0, z1) in zip(z0, z1) {
+                (*z0, *z1) = (
+                    p.add_const_time(*z0, *z1),
+                    P::mul_const_time(p_div, p.sub_const_time(*z0, *z1), w1),
+                );
+            }
+        }
+
+        t *= 2;
+    }
+}
+
+pub(crate) fn inv_depth_first_scalar_const_time<P: PrimeModulus>(
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    inv_twid: &[u64],
+    recursion_depth: usize,
+    recursion_half: usize,
+) {
+    let n = data.len();
+    debug_assert!(n.is_power_of_two());
+    if n <= RECURSION_THRESHOLD {
+        inv_breadth_first_scalar_const_time(
+            data,
+            p,
+            p_div,
+            inv_twid,
+            recursion_depth,
+            recursion_half,
+        );
+    } else {
+        let (data0, data1) = data.split_at_mut(n / 2);
+        inv_depth_first_scalar_const_time(
+            data0,
+            p,
+            p_div,
+            inv_twid,
+            recursion_depth + 1,
+            recursion_half * 2,
+        );
+        inv_depth_first_scalar_const_time(
+            data1,
+            p,
+            p_div,
+            inv_twid,
+            recursion_depth + 1,
+            recursion_half * 2 + 1,
+        );
+
+        let t = n / 2;
+        let m = 1;
+        let w_idx = (m << recursion_depth) + m * recursion_half;
+
+        let w = &inv_twid[w_idx..];
+
+        for (data, &w1) in zip(data.chunks_exact_mut(2 * t), w) {
+            let (z0, z1) = data.split_at_mut(t);
+
+            for (z0, z1) in zip(z0, z1) {
+                (*z0, *z1) = (
+                    p.add_const_time(*z0, *z1),
+                    P::mul_const_time(p_div, p.sub_const_time(*z0, *z1), w1),
+                );
+            }
+        }
+    }
+}
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub(crate) fn fwd_breadth_first_avx2<P: PrimeModulusV3>(
     simd: crate::V3,
@@ -1385,6 +1572,56 @@ pub(crate) fn fwd_depth_first_scalar<P: PrimeModulus>(
     }
 }
 
+pub(crate) fn fwd_depth_first_scalar_const_time<P: PrimeModulus>(
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    twid: &[u64],
+    recursion_depth: usize,
+    recursion_half: usize,
+) {
+    let n = data.len();
+    debug_assert!(n.is_power_of_two());
+
+    if n <= RECURSION_THRESHOLD {
+        fwd_breadth_first_scalar_const_time(data, p, p_div, twid, recursion_depth, recursion_half);
+    } else {
+        let t = n / 2;
+        let m = 1;
+        let w_idx = (m << recursion_depth) + m * recursion_half;
+
+        let w = &twid[w_idx..];
+
+        for (data, &w1) in zip(data.chunks_exact_mut(2 * t), w) {
+            let (z0, z1) = data.split_at_mut(t);
+
+            for (z0, z1) in zip(z0, z1) {
+                let z1w = P::mul_const_time(p_div, *z1, w1);
+
+                (*z0, *z1) = (p.add_const_time(*z0, z1w), p.sub_const_time(*z0, z1w));
+            }
+        }
+
+        let (data0, data1) = data.split_at_mut(n / 2);
+        fwd_depth_first_scalar_const_time(
+            data0,
+            p,
+            p_div,
+            twid,
+            recursion_depth + 1,
+            recursion_half * 2,
+        );
+        fwd_depth_first_scalar_const_time(
+            data1,
+            p,
+            p_div,
+            twid,
+            recursion_depth + 1,
+            recursion_half * 2 + 1,
+        );
+    }
+}
+
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 pub(crate) fn fwd_avx512<P: PrimeModulusV4>(
@@ -1412,6 +1649,15 @@ pub(crate) fn fwd_scalar<P: PrimeModulus>(data: &mut [u64], p: P, p_div: P::Div,
     fwd_depth_first_scalar(data, p, p_div, twid, 0, 0);
 }
 
+pub(crate) fn fwd_scalar_const_time<P: PrimeModulus>(
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    twid: &[u64],
+) {
+    fwd_depth_first_scalar_const_time(data, p, p_div, twid, 0, 0);
+}
+
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
 pub(crate) fn inv_avx512<P: PrimeModulusV4>(
@@ -1437,6 +1683,15 @@ pub(crate) fn inv_avx2<P: PrimeModulusV3>(
 
 pub(crate) fn inv_scalar<P: PrimeModulus>(data: &mut [u64], p: P, p_div: P::Div, twid: &[u64]) {
     inv_depth_first_scalar(data, p, p_div, twid, 0, 0);
+}
+
+pub(crate) fn inv_scalar_const_time<P: PrimeModulus>(
+    data: &mut [u64],
+    p: P,
+    p_div: P::Div,
+    twid: &[u64],
+) {
+    inv_depth_first_scalar_const_time(data, p, p_div, twid, 0, 0);
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -1633,6 +1888,38 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_product_const_time() {
+        for n in [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024] {
+            let p = Solinas::P;
+
+            let (lhs, rhs, negacyclic_convolution) =
+                random_lhs_rhs_with_negacyclic_convolution(n, p);
+
+            let mut twid = vec![0u64; n];
+            let mut inv_twid = vec![0u64; n];
+            init_negacyclic_twiddles(p, n, &mut twid, &mut inv_twid);
+
+            let mut prod = vec![0u64; n];
+            let mut lhs_fourier = lhs.clone();
+            let mut rhs_fourier = rhs.clone();
+
+            fwd_breadth_first_scalar_const_time(&mut lhs_fourier, p, Div64::new(p), &twid, 0, 0);
+            fwd_breadth_first_scalar_const_time(&mut rhs_fourier, p, Div64::new(p), &twid, 0, 0);
+
+            for i in 0..n {
+                prod[i] = mul(p, lhs_fourier[i], rhs_fourier[i]);
+            }
+
+            inv_breadth_first_scalar_const_time(&mut prod, p, Div64::new(p), &inv_twid, 0, 0);
+            let result = prod;
+
+            for i in 0..n {
+                assert_eq!(result[i], mul(p, negacyclic_convolution[i], n as u64));
+            }
+        }
+    }
+
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
     fn test_product_avx2() {
@@ -1753,6 +2040,70 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_product_solinas_const_time() {
+        for n in [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024] {
+            let p = Solinas::P;
+
+            let (lhs, rhs, negacyclic_convolution) =
+                random_lhs_rhs_with_negacyclic_convolution(n, p);
+
+            let mut twid = vec![0u64; n];
+            let mut inv_twid = vec![0u64; n];
+            init_negacyclic_twiddles(p, n, &mut twid, &mut inv_twid);
+
+            let mut prod = vec![0u64; n];
+            let mut lhs_fourier = lhs.clone();
+            let mut rhs_fourier = rhs.clone();
+
+            fwd_breadth_first_scalar_const_time(&mut lhs_fourier, Solinas, (), &twid, 0, 0);
+            fwd_breadth_first_scalar_const_time(&mut rhs_fourier, Solinas, (), &twid, 0, 0);
+
+            for i in 0..n {
+                prod[i] = mul(p, lhs_fourier[i], rhs_fourier[i]);
+            }
+
+            inv_breadth_first_scalar_const_time(&mut prod, Solinas, (), &inv_twid, 0, 0);
+            let result = prod;
+
+            for i in 0..n {
+                assert_eq!(result[i], mul(p, negacyclic_convolution[i], n as u64));
+            }
+        }
+    }
+
+    // #[test]
+    // fn test_product_solinas_const_time() {
+    //     for n in [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024] {
+    //         let p = Solinas::P;
+    //
+    //         let (lhs, rhs, negacyclic_convolution) =
+    //             random_lhs_rhs_with_negacyclic_convolution(n, p);
+    //
+    //         let mut twid = vec![0u64; n];
+    //         let mut inv_twid = vec![0u64; n];
+    //         init_negacyclic_twiddles(p, n, &mut twid, &mut inv_twid);
+    //
+    //         let mut prod = vec![0u64; n];
+    //         let mut lhs_fourier = lhs.clone();
+    //         let mut rhs_fourier = rhs.clone();
+    //
+    //         fwd_breadth_first_scalar(&mut lhs_fourier, Solinas, (), &twid, 0, 0);
+    //         fwd_breadth_first_scalar(&mut rhs_fourier, Solinas, (), &twid, 0, 0);
+    //
+    //         for i in 0..n {
+    //             prod[i] = mul(p, lhs_fourier[i], rhs_fourier[i]);
+    //         }
+    //
+    //         inv_breadth_first_scalar(&mut prod, Solinas, (), &inv_twid, 0, 0);
+    //         let result = prod;
+    //
+    //         for i in 0..n {
+    //             assert_eq!(result[i], mul(p, negacyclic_convolution[i], n as u64));
+    //         }
+    //     }
+    // }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
