@@ -38,21 +38,21 @@ enum PrimeModulus {
 
 impl PrimeModulus {
     fn from_u64(p: u64) -> Self {
-        if p <= 1 << 30 {
+        if p < 1 << 30 {
             Self::FitsIn30Bits
-        } else if p <= 1 << 31 {
+        } else if p < 1 << 31 {
             Self::FitsIn31Bits
-        } else if p <= 1 << 32 {
+        } else if p < 1 << 32 {
             Self::FitsIn32Bits
-        } else if p <= 1 << 50 {
+        } else if p < 1 << 50 {
             Self::FitsIn50Bits
-        } else if p <= 1 << 51 {
+        } else if p < 1 << 51 {
             Self::FitsIn51Bits
-        } else if p <= 1 << 52 {
+        } else if p < 1 << 52 {
             Self::FitsIn52Bits
-        } else if p <= 1 << 62 {
+        } else if p < 1 << 62 {
             Self::FitsIn62Bits
-        } else if p <= 1 << 63 {
+        } else if p < 1 << 63 {
             Self::FitsIn63Bits
         } else {
             Self::FitsIn64Bits
@@ -94,7 +94,7 @@ fn write_to_json(
 }
 
 fn criterion_bench(c: &mut Criterion) {
-    let ns = [1024, 16 * 1024, 32 * 1024];
+    let ns = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768];
     for n in ns {
         let mut data = vec![0; n];
         for p in [
