@@ -1,7 +1,6 @@
 use aligned_vec::avec;
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use pulp::x86::*;
+use pulp::u32x8;
 
 use crate::native32::mul_mod32;
 

@@ -2,8 +2,9 @@ use super::RECURSION_THRESHOLD;
 use crate::fastdiv::Div32;
 use core::iter::zip;
 
+use pulp::u32x8;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use pulp::{as_arrays, as_arrays_mut, cast, x86::*};
+use pulp::{as_arrays, as_arrays_mut, cast};
 
 #[inline(always)]
 pub(crate) fn add(p: u32, a: u32, b: u32) -> u32 {

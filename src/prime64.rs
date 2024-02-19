@@ -2,7 +2,8 @@ use crate::{bit_rev, fastdiv::Div64, prime::is_prime64, roots::find_primitive_ro
 use aligned_vec::{avec, ABox};
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use pulp::{cast, x86::*};
+use pulp::cast;
+use pulp::u64x4;
 
 const RECURSION_THRESHOLD: usize = 1024;
 

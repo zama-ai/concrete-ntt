@@ -50,7 +50,10 @@
 //! }
 //! ```
 
-#![cfg_attr(feature = "nightly", feature(avx512_target_feature, stdsimd))]
+#![cfg_attr(
+    all(feature = "nightly", any(target_arch = "x86", target_arch = "x86_64")),
+    feature(avx512_target_feature, stdarch_x86_avx512)
+)]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::too_many_arguments, clippy::let_unit_value)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -77,7 +80,8 @@ fn implementation_notes() {}
 use u256_impl::u256;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use pulp::{cast, x86::*};
+use pulp::cast;
+use pulp::u64x4;
 
 #[doc(hidden)]
 pub mod prime;

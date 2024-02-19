@@ -7,7 +7,8 @@ use crate::{
 use aligned_vec::{avec, ABox};
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use pulp::{cast, x86::*};
+use pulp::cast;
+use pulp::{u32x4, u32x8};
 
 const RECURSION_THRESHOLD: usize = 2048;
 

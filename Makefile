@@ -1,7 +1,7 @@
 SHELL:=$(shell /usr/bin/env which bash)
 RS_CHECK_TOOLCHAIN:=$(shell cat toolchain.txt | tr -d '\n')
 CARGO_RS_CHECK_TOOLCHAIN:=+$(RS_CHECK_TOOLCHAIN)
-RS_BUILD_TOOLCHAIN:=nightly
+RS_BUILD_TOOLCHAIN:=stable
 CARGO_RS_BUILD_TOOLCHAIN:=+$(RS_BUILD_TOOLCHAIN)
 MIN_RUST_VERSION:=1.65
 AVX512_SUPPORT?=OFF
@@ -52,6 +52,15 @@ check_fmt: install_rs_check_toolchain
 clippy: install_rs_check_toolchain
 	RUSTFLAGS="$(RUSTFLAGS)" cargo "$(CARGO_RS_CHECK_TOOLCHAIN)" clippy --all-targets \
 		-- --no-deps -D warnings
+	@# nightly
+	RUSTFLAGS="$(RUSTFLAGS)" cargo "$(CARGO_RS_CHECK_TOOLCHAIN)" clippy --all-targets \
+		--features=nightly -- --no-deps -D warnings
+	@# no-std
+	RUSTFLAGS="$(RUSTFLAGS)" cargo "$(CARGO_RS_CHECK_TOOLCHAIN)" clippy --all-targets \
+		--no-default-features -- --no-deps -D warnings
+	@# no-std nightly
+	RUSTFLAGS="$(RUSTFLAGS)" cargo "$(CARGO_RS_CHECK_TOOLCHAIN)" clippy --all-targets \
+		--no-default-features --features=nightly -- --no-deps -D warnings
 
 .PHONY: build
 build: install_rs_build_toolchain
@@ -72,8 +81,8 @@ test: install_rs_build_toolchain
 	RUSTFLAGS="$(RUSTFLAGS)" cargo $(CARGO_RS_BUILD_TOOLCHAIN) test --release
 
 .PHONY: test_nightly
-test_nightly: install_rs_build_toolchain
-	RUSTFLAGS="$(RUSTFLAGS)" cargo $(CARGO_RS_BUILD_TOOLCHAIN) test --release \
+test_nightly: install_rs_check_toolchain
+	RUSTFLAGS="$(RUSTFLAGS)" cargo $(CARGO_RS_CHECK_TOOLCHAIN) test --release \
 		--features=nightly
 
 .PHONY: test_no_std
@@ -82,8 +91,8 @@ test_no_std: install_rs_build_toolchain
 		--no-default-features
 
 .PHONY: test_no_std_nightly
-test_no_std_nightly: install_rs_build_toolchain
-	RUSTFLAGS="$(RUSTFLAGS)" cargo $(CARGO_RS_BUILD_TOOLCHAIN) test --release \
+test_no_std_nightly: install_rs_check_toolchain
+	RUSTFLAGS="$(RUSTFLAGS)" cargo $(CARGO_RS_CHECK_TOOLCHAIN) test --release \
 		--no-default-features \
 		--features=nightly
 

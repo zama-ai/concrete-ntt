@@ -1,5 +1,4 @@
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use pulp::x86::*;
+use pulp::u64x4;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
