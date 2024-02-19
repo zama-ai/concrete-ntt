@@ -1,6 +1,3 @@
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use pulp::x86::*;
-
 #[inline(always)]
 pub(crate) fn fwd_butterfly_avx512(
     simd: crate::V4IFma,
