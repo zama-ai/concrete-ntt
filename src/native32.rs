@@ -1,8 +1,7 @@
 use aligned_vec::avec;
 
-use pulp::u32x8;
 #[allow(unused_imports)]
-use pulp::{u32x16, u64x8};
+use pulp::*;
 
 /// Negacyclic NTT plan for multiplying two 32bit polynomials.
 #[derive(Clone, Debug)]
@@ -269,7 +268,6 @@ fn reconstruct_slice_32bit_012_avx2(
             let mod_p1 = pulp::as_arrays::<8, _>(mod_p1).0;
             let mod_p2 = pulp::as_arrays::<8, _>(mod_p2).0;
             for (value, &mod_p0, &mod_p1, &mod_p2) in crate::izip!(value, mod_p0, mod_p1, mod_p2) {
-                use pulp::cast;
                 *value = cast(reconstruct_32bit_012_avx2(
                     simd,
                     cast(mod_p0),
@@ -298,7 +296,6 @@ fn reconstruct_slice_32bit_012_avx512(
             let mod_p1 = pulp::as_arrays::<16, _>(mod_p1).0;
             let mod_p2 = pulp::as_arrays::<16, _>(mod_p2).0;
             for (value, &mod_p0, &mod_p1, &mod_p2) in crate::izip!(value, mod_p0, mod_p1, mod_p2) {
-                use pulp::cast;
                 *value = cast(reconstruct_32bit_012_avx512(
                     simd,
                     cast(mod_p0),
@@ -325,7 +322,6 @@ fn reconstruct_slice_52bit_01_avx512(
             let mod_p0 = pulp::as_arrays::<8, _>(mod_p0).0;
             let mod_p1 = pulp::as_arrays::<8, _>(mod_p1).0;
             for (value, &mod_p0, &mod_p1) in crate::izip!(value, mod_p0, mod_p1) {
-                use pulp::cast;
                 *value = cast(reconstruct_52bit_01_avx512(
                     simd,
                     cast(mod_p0),

@@ -1,13 +1,8 @@
 use super::RECURSION_THRESHOLD;
 use crate::Butterfly;
 use core::iter::zip;
-use pulp::cast;
-
 #[allow(unused_imports)]
-use pulp::u32x16;
-use pulp::u32x8;
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use pulp::{as_arrays, as_arrays_mut};
+use pulp::*;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]

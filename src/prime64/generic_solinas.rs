@@ -2,11 +2,8 @@ use super::RECURSION_THRESHOLD;
 use crate::fastdiv::Div64;
 use core::{fmt::Debug, iter::zip};
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use pulp::cast;
-use pulp::u64x4;
 #[allow(unused_imports)]
-use pulp::{b8, u64x8};
+use pulp::*;
 
 pub(crate) trait PrimeModulus: Debug + Copy {
     type Div: Debug + Copy;
