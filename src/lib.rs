@@ -82,6 +82,8 @@ use u256_impl::u256;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use pulp::cast;
 use pulp::u64x4;
+#[allow(unused_imports)]
+use pulp::u64x8;
 
 #[doc(hidden)]
 pub mod prime;

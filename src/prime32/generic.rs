@@ -5,6 +5,8 @@ use core::iter::zip;
 use pulp::u32x8;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use pulp::{as_arrays, as_arrays_mut, cast};
+#[allow(unused_imports)]
+use pulp::{b16, u32x16};
 
 #[inline(always)]
 pub(crate) fn add(p: u32, a: u32, b: u32) -> u32 {

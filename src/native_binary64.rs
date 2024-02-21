@@ -1,5 +1,7 @@
 use aligned_vec::avec;
 
+#[allow(unused_imports)]
+use pulp::{b8, u32x16, u64x8};
 use pulp::{i32x4, m64x4, u32x4, u32x8, u64x4};
 
 pub(crate) use crate::native32::mul_mod32;
@@ -109,8 +111,8 @@ fn reconstruct_32bit_012_avx2(
     let sign = simd.cmp_gt_u32x8(v2, half_p2);
     let sign: [i32x4; 2] = pulp::cast(sign);
     // sign extend so that -1i32 becomes -1i64
-    let sign0: m64x4 = pulp::cast(simd.convert_i32x4_to_i64x4(sign[0]));
-    let sign1: m64x4 = pulp::cast(simd.convert_i32x4_to_i64x4(sign[1]));
+    let sign0: m64x4 = unsafe { core::mem::transmute(simd.convert_i32x4_to_i64x4(sign[0])) };
+    let sign1: m64x4 = unsafe { core::mem::transmute(simd.convert_i32x4_to_i64x4(sign[1])) };
 
     let v0: [u32x4; 2] = pulp::cast(v0);
     let v1: [u32x4; 2] = pulp::cast(v1);

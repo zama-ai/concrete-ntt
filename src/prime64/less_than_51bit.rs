@@ -1,3 +1,5 @@
+use pulp::u64x8;
+
 #[inline(always)]
 pub(crate) fn fwd_butterfly_avx512(
     simd: crate::V4IFma,
