@@ -1,8 +1,7 @@
 use aligned_vec::avec;
 
-use pulp::u32x8;
 #[allow(unused_imports)]
-use pulp::{u32x16, u64x8};
+use pulp::*;
 
 use crate::native32::mul_mod32;
 
@@ -139,7 +138,6 @@ fn reconstruct_slice_32bit_01_avx2(
             let mod_p0 = pulp::as_arrays::<8, _>(mod_p0).0;
             let mod_p1 = pulp::as_arrays::<8, _>(mod_p1).0;
             for (value, &mod_p0, &mod_p1) in crate::izip!(value, mod_p0, mod_p1) {
-                use pulp::cast;
                 *value = cast(reconstruct_32bit_01_avx2(simd, cast(mod_p0), cast(mod_p1)));
             }
         },
@@ -161,7 +159,6 @@ fn reconstruct_slice_32bit_01_avx512(
             let mod_p0 = pulp::as_arrays::<16, _>(mod_p0).0;
             let mod_p1 = pulp::as_arrays::<16, _>(mod_p1).0;
             for (value, &mod_p0, &mod_p1) in crate::izip!(value, mod_p0, mod_p1) {
-                use pulp::cast;
                 *value = cast(reconstruct_32bit_01_avx512(
                     simd,
                     cast(mod_p0),
@@ -181,7 +178,6 @@ fn reconstruct_slice_52bit_0_avx512(simd: crate::V4IFma, value: &mut [u32], mod_
             let value = pulp::as_arrays_mut::<8, _>(value).0;
             let mod_p0 = pulp::as_arrays::<8, _>(mod_p0).0;
             for (value, &mod_p0) in crate::izip!(value, mod_p0) {
-                use pulp::cast;
                 *value = cast(reconstruct_52bit_0_avx512(simd, cast(mod_p0)));
             }
         },

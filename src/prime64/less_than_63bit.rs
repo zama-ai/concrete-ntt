@@ -1,6 +1,5 @@
-use pulp::u64x4;
 #[allow(unused_imports)]
-use pulp::u64x8;
+use pulp::*;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "nightly")]
