@@ -1,21 +1,8 @@
 use serde::Serialize;
-use std::{
-    fs,
-    ops::{Add, Mul, Sub},
-    path::PathBuf,
-};
+use std::{fs, path::PathBuf};
 
 use concrete_ntt::{prime::largest_prime_in_arithmetic_progression64, *};
 use criterion::*;
-
-trait Scalar: Copy + Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> {
-    fn zero() -> Self;
-}
-impl<T: Copy + Add<Output = T> + Sub<Output = T> + Mul<Output = T>> Scalar for T {
-    fn zero() -> Self {
-        unsafe { core::mem::zeroed() }
-    }
-}
 
 #[derive(Serialize)]
 enum PrimeModulus {
