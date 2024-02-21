@@ -1,6 +1,8 @@
 use aligned_vec::avec;
 
 use pulp::u32x8;
+#[allow(unused_imports)]
+use pulp::{u32x16, u64x8};
 
 /// Negacyclic NTT plan for multiplying two 32bit polynomials.
 #[derive(Clone, Debug)]
