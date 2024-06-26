@@ -685,6 +685,10 @@ impl Plan {
         }
     }
 
+    pub(crate) fn p_div(&self) -> Div32 {
+        self.p_div
+    }
+
     /// Returns the polynomial size of the negacyclic NTT plan.
     #[inline]
     pub fn ntt_size(&self) -> usize {
