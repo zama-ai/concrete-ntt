@@ -13,7 +13,7 @@ rust-version = "1.67"
 
 [dependencies]
 aligned-vec = { version = "0.5", default-features = false }
-pulp = { version = "0.18.8", default-features = false }
+pulp = { version = "0.18.22", default-features = false }
 
 [features]
 default = ["std"]
