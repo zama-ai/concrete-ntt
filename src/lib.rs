@@ -3,24 +3,22 @@
 //!
 //! This library provides three kinds of NTT:
 //! - The prime NTT computes the transform in a field $\mathbb{Z}/p\mathbb{Z}$ with $p$ prime,
-//!   allowing for
-//! arithmetic operations on the polynomial modulo $p$.
+//!   allowing for arithmetic operations on the polynomial modulo $p$.
 //! - The native NTT internally computes the transform of the first kind with several primes,
-//! allowing the simulation of arithmetic modulo the product of those primes, and truncates the
-//! result when the inverse transform is desired. The truncated result is guaranteed to be as if
-//! the computations were performed with wrapping arithmetic, as long as the full integer result
-//! would have been smaller than half the product of the primes, in absolute value. It is guaranteed
-//! to be suitable for multiplying two polynomials with arbitrary coefficients, and returns the
-//! result in wrapping arithmetic.
-//! - The native binary NTT is similar to the native NTT, but is optimized for the case where one
-//! of the operands of the multiplication has coefficients in $\lbrace 0, 1 \rbrace$.
+//!   allowing the simulation of arithmetic modulo the product of those primes, and truncates the
+//!   result when the inverse transform is desired. The truncated result is guaranteed to be as if
+//!   the computations were performed with wrapping arithmetic, as long as the full integer result
+//!   would have been smaller than half the product of the primes, in absolute value. It is
+//!   guaranteed to be suitable for multiplying two polynomials with arbitrary coefficients, and
+//!   returns the result in wrapping arithmetic.
+//! - The native binary NTT is similar to the native NTT, but is optimized for the case where one of
+//!   the operands of the multiplication has coefficients in $\lbrace 0, 1 \rbrace$.
 //!
 //! # Features
 //!
 //! - `std` (default): This enables runtime arch detection for accelerated SIMD instructions.
-//! - `nightly`: This enables unstable Rust features to further speed up the NTT, by enabling
-//! AVX512 instructions on CPUs that support them. This feature requires a nightly Rust
-//! toolchain.
+//! - `nightly`: This enables unstable Rust features to further speed up the NTT, by enabling AVX512
+//!   instructions on CPUs that support them. This feature requires a nightly Rust toolchain.
 //!
 //! # Example
 //!
