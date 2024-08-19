@@ -1,6 +1,6 @@
 [package]
 name = "concrete-ntt"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 description = "Concrete-NTT is a pure Rust high performance number theoretic transform library."
 readme = "README.md"
