@@ -20,7 +20,7 @@ mod less_than_31bit;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 impl crate::V3 {
     #[inline(always)]
-    fn interleave4_u32x8(self, z0z0z0z0z1z1z1z1: [u32x8; 2]) -> [u32x8; 2] {
+    pub(crate) fn interleave4_u32x8(self, z0z0z0z0z1z1z1z1: [u32x8; 2]) -> [u32x8; 2] {
         let avx = self.avx;
         [
             cast(avx._mm256_permute2f128_si256::<0b0010_0000>(
@@ -35,7 +35,7 @@ impl crate::V3 {
     }
 
     #[inline(always)]
-    fn permute4_u32x8(self, w: [u32; 2]) -> u32x8 {
+    pub(crate) fn permute4_u32x8(self, w: [u32; 2]) -> u32x8 {
         let avx = self.avx;
         let w0 = self.sse2._mm_set1_epi32(w[0] as i32);
         let w1 = self.sse2._mm_set1_epi32(w[1] as i32);
@@ -43,7 +43,7 @@ impl crate::V3 {
     }
 
     #[inline(always)]
-    fn interleave2_u32x8(self, z0z0z1z1: [u32x8; 2]) -> [u32x8; 2] {
+    pub(crate) fn interleave2_u32x8(self, z0z0z1z1: [u32x8; 2]) -> [u32x8; 2] {
         let avx = self.avx2;
         [
             cast(avx._mm256_unpacklo_epi64(cast(z0z0z1z1[0]), cast(z0z0z1z1[1]))),
@@ -52,7 +52,7 @@ impl crate::V3 {
     }
 
     #[inline(always)]
-    fn permute2_u32x8(self, w: [u32; 4]) -> u32x8 {
+    pub(crate) fn permute2_u32x8(self, w: [u32; 4]) -> u32x8 {
         let avx = self.avx;
         let w0123 = pulp::cast(w);
         let w0022 = self.sse2._mm_castps_si128(self.sse3._mm_moveldup_ps(w0123));
@@ -61,7 +61,7 @@ impl crate::V3 {
     }
 
     #[inline(always)]
-    fn interleave1_u32x8(self, z0z0z1z1: [u32x8; 2]) -> [u32x8; 2] {
+    pub(crate) fn interleave1_u32x8(self, z0z0z1z1: [u32x8; 2]) -> [u32x8; 2] {
         let avx = self.avx2;
         let x = [
             // 00 10 01 11 04 14 05 15 08 18 09 19 0c 1c 0d 1d
@@ -78,7 +78,7 @@ impl crate::V3 {
     }
 
     #[inline(always)]
-    fn permute1_u32x8(self, w: [u32; 8]) -> u32x8 {
+    pub(crate) fn permute1_u32x8(self, w: [u32; 8]) -> u32x8 {
         let avx = self.avx;
         let [w0123, w4567]: [u32x4; 2] = pulp::cast(w);
         let w0415 = self.sse2._mm_unpacklo_epi32(cast(w0123), cast(w4567));

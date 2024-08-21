@@ -6,7 +6,7 @@ use pulp::*;
 
 const RECURSION_THRESHOLD: usize = 1024;
 
-mod generic_solinas;
+pub(crate) mod generic_solinas;
 mod shoup;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

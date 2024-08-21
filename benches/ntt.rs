@@ -1,3 +1,4 @@
+use aligned_vec::avec;
 use serde::Serialize;
 use std::{fs, path::PathBuf};
 
@@ -81,6 +82,62 @@ fn write_to_json(
 }
 
 fn criterion_bench(c: &mut Criterion) {
+    {
+        let n = 1024;
+        {
+            let p = prime64::Solinas::P;
+            let plan = prime64::Plan::try_new(n, p).unwrap();
+            let x = &mut *avec![0u64; n];
+
+            for x in x.iter_mut() {
+                *x = rand::random::<u64>() % p;
+            }
+
+            c.bench_function(&format!("solinas-{n}"), |b| {
+                b.iter(|| plan.fwd(x));
+            });
+        }
+
+        {
+            let p = largest_prime_in_arithmetic_progression64(1 << 16, 1, 1 << 29, 1 << 30).unwrap()
+                as u32;
+            let plan = prime32::Plan::try_new(n, p).unwrap();
+            let x = &mut *avec![0u32; n];
+
+            for x in x.iter_mut() {
+                *x = rand::random::<u32>() % p;
+            }
+
+            c.bench_function(&format!("prime-30-{n}"), |b| {
+                b.iter(|| plan.fwd(x));
+            });
+        }
+
+        {
+            let p = &mut *avec![pulp::i32x4(0,0,0,0); n];
+            let omega = &mut *avec![0u64; n];
+
+            for x in p.iter_mut() {
+                *x = pulp::i32x4(
+                    rand::random::<i32>() % 0xFFFFFF,
+                    rand::random::<i32>() % 0xFFFFFF,
+                    rand::random::<i32>() % 0xFFFFFF,
+                    rand::random::<i32>() % 0xFFFFFF,
+                );
+            }
+
+            for x in omega.iter_mut() {
+                *x = rand::random::<u64>() % prime64::Solinas::P;
+            }
+
+            let omega = &*omega;
+
+            c.bench_function(&format!("solinas-v2-{n}"), |b| {
+                b.iter(|| concrete_ntt::solinas::x86::ntt_1024(p, omega));
+            });
+        }
+    }
+
     let ns = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768];
     for n in ns {
         let mut data = vec![0; n];
