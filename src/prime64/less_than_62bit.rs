@@ -113,6 +113,53 @@ pub(crate) fn fwd_last_butterfly_avx2(
     )
 }
 
+#[cfg(any(target_arch = "aarch64"))]
+#[inline(always)]
+pub(crate) fn fwd_butterfly_scalar(
+    z0: u64,
+    z1: u64,
+    w: u64,
+    w_shoup: u64,
+    p: u64,
+    neg_p: u64,
+    two_p: u64,
+) -> (u64, u64) {
+    let _ = p;
+    let z0 = z0.min(z0.wrapping_sub(two_p));
+
+    let shoup_q_u128 = (z1 as u128 * w_shoup as u128) >> 64;
+    let t = ((z1 as u128 * w as u128) + (shoup_q_u128 * neg_p as u128)) as u64;
+
+    (z0.wrapping_add(t), z0.wrapping_sub(t).wrapping_add(two_p))
+}
+
+#[cfg(any(target_arch = "aarch64"))]
+#[inline(always)]
+pub(crate) fn fwd_last_butterfly_scalar(
+    z0: u64,
+    z1: u64,
+    w: u64,
+    w_shoup: u64,
+    p: u64,
+    neg_p: u64,
+    two_p: u64,
+) -> (u64, u64) {
+    let _ = p;
+    let z0 = z0.min(z0.wrapping_sub(two_p));
+    let z0 = z0.min(z0.wrapping_sub(p));
+
+    let shoup_q_u128 = (z1 as u128 * w_shoup as u128) >> 64;
+    let t = ((z1 as u128 * w as u128) + (shoup_q_u128 * neg_p as u128)) as u64;
+
+    let t = t.min(t.wrapping_sub(p));
+    let res = (z0.wrapping_add(t), z0.wrapping_sub(t).wrapping_add(p));
+    (
+        res.0.min(res.0.wrapping_sub(p)),
+        res.1.min(res.1.wrapping_sub(p)),
+    )
+}
+
+#[cfg(not(target_arch = "aarch64"))]
 #[inline(always)]
 pub(crate) fn fwd_butterfly_scalar(
     z0: u64,
@@ -130,6 +177,7 @@ pub(crate) fn fwd_butterfly_scalar(
     (z0.wrapping_add(t), z0.wrapping_sub(t).wrapping_add(two_p))
 }
 
+#[cfg(not(target_arch = "aarch64"))]
 #[inline(always)]
 pub(crate) fn fwd_last_butterfly_scalar(
     z0: u64,
@@ -267,6 +315,55 @@ pub(crate) fn inv_last_butterfly_avx2(
     (y0, y1)
 }
 
+#[cfg(any(target_arch = "aarch64"))]
+#[inline(always)]
+pub(crate) fn inv_butterfly_scalar(
+    z0: u64,
+    z1: u64,
+    w: u64,
+    w_shoup: u64,
+    p: u64,
+    neg_p: u64,
+    two_p: u64,
+) -> (u64, u64) {
+    let _ = p;
+
+    let y0 = z0.wrapping_add(z1);
+    let y0 = y0.min(y0.wrapping_sub(two_p));
+    let t = z0.wrapping_sub(z1).wrapping_add(two_p);
+
+    let shoup_q_u128 = (t as u128 * w_shoup as u128) >> 64;
+    let y1 = ((t as u128 * w as u128) + shoup_q_u128 * neg_p as u128) as u64;
+
+    (y0, y1)
+}
+
+#[cfg(any(target_arch = "aarch64"))]
+#[inline(always)]
+pub(crate) fn inv_last_butterfly_scalar(
+    z0: u64,
+    z1: u64,
+    w: u64,
+    w_shoup: u64,
+    p: u64,
+    neg_p: u64,
+    two_p: u64,
+) -> (u64, u64) {
+    let _ = p;
+
+    let y0 = z0.wrapping_add(z1);
+    let y0 = y0.min(y0.wrapping_sub(two_p));
+    let y0 = y0.min(y0.wrapping_sub(p));
+    let t = z0.wrapping_sub(z1).wrapping_add(two_p);
+
+    let shoup_q_u128 = (t as u128 * w_shoup as u128) >> 64;
+    let y1 = ((t as u128 * w as u128) + shoup_q_u128 * neg_p as u128) as u64;
+
+    let y1 = y1.min(y1.wrapping_sub(p));
+    (y0, y1)
+}
+
+#[cfg(not(target_arch = "aarch64"))]
 #[inline(always)]
 pub(crate) fn inv_butterfly_scalar(
     z0: u64,
@@ -287,6 +384,7 @@ pub(crate) fn inv_butterfly_scalar(
     (y0, y1)
 }
 
+#[cfg(not(target_arch = "aarch64"))]
 #[inline(always)]
 pub(crate) fn inv_last_butterfly_scalar(
     z0: u64,
