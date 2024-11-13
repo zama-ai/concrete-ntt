@@ -13,6 +13,7 @@ rust-version = "1.67"
 
 [dependencies]
 aligned-vec = { version = "0.5", default-features = false }
+bytemuck = "1"
 pulp = { version = "0.18.22", default-features = false }
 
 [features]
